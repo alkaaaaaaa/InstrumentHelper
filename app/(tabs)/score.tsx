@@ -2,8 +2,10 @@ import React, { useState, useCallback } from "react"
 import { View, ScrollView, StyleSheet, Text, TouchableOpacity } from "react-native"
 import { TabStaff } from "../../components/score/TabStaff"
 import { EditorToolbar } from "../../components/score/EditorToolbar"
+import { StaffNotation } from "../../components/score/StaffNotation"
+import { StaffToolbar } from "../../components/score/StaffToolbar"
 import { demoScore } from "../../data/demoScore"
-import { Measure, TabNote, Score as ScoreType } from "../../models/Score"
+import { Measure, Note, TabNote, Score as ScoreType } from "../../models/Score"
 
 type SelectedCell = {
     measureIndex: number
@@ -13,17 +15,148 @@ type SelectedCell = {
 
 type ScoreMode = "menu" | "staff" | "tab"
 
+type SelectedStaffNote = {
+    measureIndex: number
+    beat: number
+}
+
 function StaffNotationView({ onBack }: { onBack: () => void }) {
+    const [score, setScore] = useState<ScoreType>(demoScore)
+    const [selectedNote, setSelectedNote] = useState<SelectedStaffNote | null>(null)
+    const [currentOctave, setCurrentOctave] = useState(4)
+    const [currentDuration, setCurrentDuration] = useState(1)
+    const [currentAccidental, setCurrentAccidental] = useState("")
+
+    const beatsPerMeasure = score.timeSignature.beats
+
+    const handleNoteSelect = useCallback((note: SelectedStaffNote) => {
+        setSelectedNote(note)
+    }, [])
+
+    const handleNoteInput = useCallback((pitch: string, duration: number) => {
+        if (!selectedNote) return
+
+        setScore(prev => {
+            const newMeasures = prev.measures.map(m => {
+                if (m.index !== selectedNote.measureIndex) return m
+
+                const notes = [...m.notes]
+                // 移除同一拍位置的同音高音符（替换）
+                const filtered = notes.filter(
+                    n => !(n.start === selectedNote.beat && n.pitch === pitch)
+                )
+                const newNote: Note = {
+                    pitch,
+                    start: selectedNote.beat,
+                    duration,
+                }
+                filtered.push(newNote)
+                // 按 start 排序
+                filtered.sort((a, b) => a.start - b.start)
+                return { ...m, notes: filtered }
+            })
+            return { ...prev, measures: newMeasures }
+        })
+
+        // 自动前进到下一拍
+        setSelectedNote(prev => {
+            if (!prev) return null
+            const nextBeat = prev.beat + 1
+            if (nextBeat < beatsPerMeasure) {
+                return { ...prev, beat: nextBeat }
+            }
+            const nextMeasureIdx = prev.measureIndex + 1
+            if (nextMeasureIdx < score.measures.length) {
+                return { measureIndex: nextMeasureIdx, beat: 0 }
+            }
+            return prev
+        })
+    }, [selectedNote, beatsPerMeasure, score.measures.length])
+
+    const handleDelete = useCallback(() => {
+        if (!selectedNote) return
+
+        setScore(prev => {
+            const newMeasures = prev.measures.map(m => {
+                if (m.index !== selectedNote.measureIndex) return m
+                const notes = m.notes.filter(n => n.start !== selectedNote.beat)
+                return { ...m, notes }
+            })
+            return { ...prev, measures: newMeasures }
+        })
+    }, [selectedNote])
+
+    const handleAddMeasure = useCallback(() => {
+        setScore(prev => {
+            const newIndex = prev.measures.length
+            const newMeasure: Measure = {
+                index: newIndex,
+                notes: [],
+                tabNotes: [],
+            }
+            return { ...prev, measures: [...prev.measures, newMeasure] }
+        })
+    }, [])
+
+    const handleMoveLeft = useCallback(() => {
+        setSelectedNote(prev => {
+            if (!prev) return { measureIndex: 0, beat: 0 }
+            if (prev.beat > 0) return { ...prev, beat: prev.beat - 1 }
+            if (prev.measureIndex > 0) {
+                return { measureIndex: prev.measureIndex - 1, beat: beatsPerMeasure - 1 }
+            }
+            return prev
+        })
+    }, [beatsPerMeasure])
+
+    const handleMoveRight = useCallback(() => {
+        setSelectedNote(prev => {
+            if (!prev) return { measureIndex: 0, beat: 0 }
+            if (prev.beat < beatsPerMeasure - 1) return { ...prev, beat: prev.beat + 1 }
+            if (prev.measureIndex < score.measures.length - 1) {
+                return { measureIndex: prev.measureIndex + 1, beat: 0 }
+            }
+            return prev
+        })
+    }, [beatsPerMeasure, score.measures.length])
+
+    const accidentalLabel = currentAccidental === "#" ? "♯" : currentAccidental === "b" ? "♭" : ""
+    const selectedInfo = selectedNote
+        ? `小节 ${selectedNote.measureIndex + 1} | 拍 ${selectedNote.beat + 1} | 八度 ${currentOctave} | 时值 ${currentDuration}${accidentalLabel ? ` | ${accidentalLabel}` : ""}`
+        : "点击五线谱选择位置"
+
     return (
         <View style={styles.container}>
             <TouchableOpacity style={styles.backButton} onPress={onBack}>
                 <Text style={styles.backButtonText}>← 返回</Text>
             </TouchableOpacity>
-            <View style={styles.placeholderContainer}>
-                <Text style={styles.placeholderIcon}>🎼</Text>
-                <Text style={styles.placeholderTitle}>五线谱</Text>
-                <Text style={styles.placeholderSubtitle}>功能开发中，敬请期待...</Text>
-            </View>
+            <ScrollView
+                horizontal
+                style={styles.scrollView}
+                contentContainerStyle={styles.scrollContent}
+                showsHorizontalScrollIndicator={true}
+            >
+                <StaffNotation
+                    measures={score.measures}
+                    timeSignature={score.timeSignature}
+                    selectedNote={selectedNote}
+                    onNoteSelect={handleNoteSelect}
+                />
+            </ScrollView>
+            <StaffToolbar
+                onNoteInput={handleNoteInput}
+                onDelete={handleDelete}
+                onAddMeasure={handleAddMeasure}
+                onMoveLeft={handleMoveLeft}
+                onMoveRight={handleMoveRight}
+                selectedInfo={selectedInfo}
+                currentOctave={currentOctave}
+                onOctaveChange={setCurrentOctave}
+                currentDuration={currentDuration}
+                onDurationChange={setCurrentDuration}
+                currentAccidental={currentAccidental}
+                onAccidentalChange={setCurrentAccidental}
+            />
         </View>
     )
 }
@@ -232,8 +365,7 @@ const styles = StyleSheet.create({
         flex: 1,
     },
     scrollContent: {
-        paddingVertical: 20,
-        alignItems: "center",
+        flexGrow: 1,
     },
     backButton: {
         paddingHorizontal: 16,
