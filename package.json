@@ -1,7 +1,7 @@
 {
   "name": "instrumenthelper",
   "version": "1.0.0",
-  "main": "index.ts",
+  "main": "index",
   "scripts": {
     "start": "expo start",
     "android": "expo start --android",
@@ -11,6 +11,7 @@
   "dependencies": {
     "@react-navigation/bottom-tabs": "^7.12.0",
     "@react-navigation/native": "^7.1.28",
+    "@shopify/react-native-skia": "2.2.12",
     "@tamagui/config": "^2.0.0-rc.7",
     "expo": "~54.0.33",
     "expo-status-bar": "~3.0.9",
