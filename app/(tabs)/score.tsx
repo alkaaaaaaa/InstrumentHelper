@@ -1,9 +1,9 @@
 import React, { useState, useCallback } from "react"
-import { View, ScrollView, StyleSheet, KeyboardAvoidingView, Platform } from "react-native"
-import { TabStaff } from "../components/score/TabStaff"
-import { EditorToolbar } from "../components/score/EditorToolbar"
-import { demoScore } from "../data/demoScore"
-import { Measure, TabNote, Score as ScoreType } from "../models/Score"
+import { View, ScrollView, StyleSheet } from "react-native"
+import { TabStaff } from "../../components/score/TabStaff"
+import { EditorToolbar } from "../../components/score/EditorToolbar"
+import { demoScore } from "../../data/demoScore"
+import { Measure, TabNote, Score as ScoreType } from "../../models/Score"
 
 type SelectedCell = {
     measureIndex: number
@@ -17,12 +17,10 @@ export default function Score() {
 
     const beatsPerMeasure = score.timeSignature.beats
 
-    // 选中某个格子
     const handleCellSelect = useCallback((cell: SelectedCell) => {
         setSelectedCell(cell)
     }, [])
 
-    // 输入品位数字
     const handleFretInput = useCallback((fret: number) => {
         if (!selectedCell) return
 
@@ -31,7 +29,6 @@ export default function Score() {
                 if (m.index !== selectedCell.measureIndex) return m
 
                 const tabNotes = [...(m.tabNotes || [])]
-                // 查找是否已有该位置的音符
                 const existingIdx = tabNotes.findIndex(
                     n => n.beat === selectedCell.beat && n.string === selectedCell.string
                 )
@@ -53,14 +50,12 @@ export default function Score() {
             return { ...prev, measures: newMeasures }
         })
 
-        // 输入后自动右移
         setSelectedCell(prev => {
             if (!prev) return null
             const nextBeat = prev.beat + 1
             if (nextBeat < beatsPerMeasure) {
                 return { ...prev, beat: nextBeat }
             }
-            // 跳到下一小节
             const nextMeasureIdx = prev.measureIndex + 1
             if (nextMeasureIdx < score.measures.length) {
                 return { measureIndex: nextMeasureIdx, beat: 0, string: prev.string }
@@ -69,7 +64,6 @@ export default function Score() {
         })
     }, [selectedCell, beatsPerMeasure, score.measures.length])
 
-    // 删除当前选中位置的音符
     const handleDelete = useCallback(() => {
         if (!selectedCell) return
 
@@ -85,7 +79,6 @@ export default function Score() {
         })
     }, [selectedCell])
 
-    // 添加小节
     const handleAddMeasure = useCallback(() => {
         setScore(prev => {
             const newIndex = prev.measures.length
@@ -98,7 +91,6 @@ export default function Score() {
         })
     }, [])
 
-    // 方向键移动
     const handleMoveLeft = useCallback(() => {
         setSelectedCell(prev => {
             if (!prev) return { measureIndex: 0, beat: 0, string: 1 }
@@ -137,7 +129,6 @@ export default function Score() {
         })
     }, [])
 
-    // 选中信息文本
     const selectedInfo = selectedCell
         ? `小节 ${selectedCell.measureIndex + 1} | 拍 ${selectedCell.beat + 1} | 弦 ${selectedCell.string}`
         : "点击六线谱选择位置"
