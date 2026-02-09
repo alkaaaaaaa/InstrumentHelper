@@ -1,5 +1,5 @@
 import React, { useState, useCallback } from "react"
-import { View, ScrollView, StyleSheet } from "react-native"
+import { View, ScrollView, StyleSheet, Text, TouchableOpacity } from "react-native"
 import { TabStaff } from "../../components/score/TabStaff"
 import { EditorToolbar } from "../../components/score/EditorToolbar"
 import { demoScore } from "../../data/demoScore"
@@ -11,7 +11,24 @@ type SelectedCell = {
     string: number
 }
 
-export default function Score() {
+type ScoreMode = "menu" | "staff" | "tab"
+
+function StaffNotationView({ onBack }: { onBack: () => void }) {
+    return (
+        <View style={styles.container}>
+            <TouchableOpacity style={styles.backButton} onPress={onBack}>
+                <Text style={styles.backButtonText}>← 返回</Text>
+            </TouchableOpacity>
+            <View style={styles.placeholderContainer}>
+                <Text style={styles.placeholderIcon}>🎼</Text>
+                <Text style={styles.placeholderTitle}>五线谱</Text>
+                <Text style={styles.placeholderSubtitle}>功能开发中，敬请期待...</Text>
+            </View>
+        </View>
+    )
+}
+
+function TabNotationEditor({ onBack }: { onBack: () => void }) {
     const [score, setScore] = useState<ScoreType>(demoScore)
     const [selectedCell, setSelectedCell] = useState<SelectedCell | null>(null)
 
@@ -135,6 +152,9 @@ export default function Score() {
 
     return (
         <View style={styles.container}>
+            <TouchableOpacity style={styles.backButton} onPress={onBack}>
+                <Text style={styles.backButtonText}>← 返回</Text>
+            </TouchableOpacity>
             <ScrollView
                 horizontal
                 style={styles.scrollView}
@@ -162,6 +182,47 @@ export default function Score() {
     )
 }
 
+export default function Score() {
+    const [mode, setMode] = useState<ScoreMode>("menu")
+
+    if (mode === "staff") {
+        return <StaffNotationView onBack={() => setMode("menu")} />
+    }
+
+    if (mode === "tab") {
+        return <TabNotationEditor onBack={() => setMode("menu")} />
+    }
+
+    return (
+        <View style={styles.menuContainer}>
+            <Text style={styles.menuTitle}>乐谱编辑</Text>
+            <Text style={styles.menuSubtitle}>选择乐谱类型开始编辑</Text>
+
+            <View style={styles.buttonGroup}>
+                <TouchableOpacity
+                    style={styles.menuButton}
+                    onPress={() => setMode("staff")}
+                    activeOpacity={0.7}
+                >
+                    <Text style={styles.menuButtonIcon}>🎼</Text>
+                    <Text style={styles.menuButtonTitle}>五线谱</Text>
+                    <Text style={styles.menuButtonDesc}>标准五线谱记谱法</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                    style={styles.menuButton}
+                    onPress={() => setMode("tab")}
+                    activeOpacity={0.7}
+                >
+                    <Text style={styles.menuButtonIcon}>🎸</Text>
+                    <Text style={styles.menuButtonTitle}>六线谱</Text>
+                    <Text style={styles.menuButtonDesc}>吉他六线谱编辑器</Text>
+                </TouchableOpacity>
+            </View>
+        </View>
+    )
+}
+
 const styles = StyleSheet.create({
     container: {
         flex: 1,
@@ -173,5 +234,85 @@ const styles = StyleSheet.create({
     scrollContent: {
         paddingVertical: 20,
         alignItems: "center",
+    },
+    backButton: {
+        paddingHorizontal: 16,
+        paddingVertical: 12,
+        backgroundColor: "#f5f5f5",
+    },
+    backButtonText: {
+        fontSize: 16,
+        color: "#007AFF",
+        fontWeight: "500",
+    },
+    placeholderContainer: {
+        flex: 1,
+        justifyContent: "center",
+        alignItems: "center",
+        paddingHorizontal: 32,
+    },
+    placeholderIcon: {
+        fontSize: 64,
+        marginBottom: 16,
+    },
+    placeholderTitle: {
+        fontSize: 24,
+        fontWeight: "700",
+        color: "#333",
+        marginBottom: 8,
+    },
+    placeholderSubtitle: {
+        fontSize: 16,
+        color: "#999",
+    },
+    menuContainer: {
+        flex: 1,
+        backgroundColor: "#f8f9fa",
+        justifyContent: "center",
+        alignItems: "center",
+        paddingHorizontal: 24,
+    },
+    menuTitle: {
+        fontSize: 28,
+        fontWeight: "700",
+        color: "#1a1a1a",
+        marginBottom: 8,
+    },
+    menuSubtitle: {
+        fontSize: 15,
+        color: "#888",
+        marginBottom: 40,
+    },
+    buttonGroup: {
+        flexDirection: "row",
+        gap: 16,
+    },
+    menuButton: {
+        backgroundColor: "#ffffff",
+        borderRadius: 16,
+        paddingVertical: 28,
+        paddingHorizontal: 24,
+        alignItems: "center",
+        width: 160,
+        shadowColor: "#000",
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.08,
+        shadowRadius: 12,
+        elevation: 3,
+    },
+    menuButtonIcon: {
+        fontSize: 48,
+        marginBottom: 12,
+    },
+    menuButtonTitle: {
+        fontSize: 18,
+        fontWeight: "600",
+        color: "#1a1a1a",
+        marginBottom: 4,
+    },
+    menuButtonDesc: {
+        fontSize: 13,
+        color: "#999",
+        textAlign: "center",
     },
 })
