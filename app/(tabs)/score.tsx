@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from "react"
+import React, { useState, useCallback, useRef, useEffect } from "react"
 import { View, ScrollView, StyleSheet, Text, TouchableOpacity } from "react-native"
 import { TabStaff } from "../../components/score/TabStaff"
 import { EditorToolbar } from "../../components/score/EditorToolbar"
@@ -6,6 +6,7 @@ import { StaffNotation } from "../../components/score/StaffNotation"
 import { StaffToolbar } from "../../components/score/StaffToolbar"
 import { demoScore } from "../../data/demoScore"
 import { Measure, Note, TabNote, Score as ScoreType } from "../../models/Score"
+import { useScorePlayer } from "../../hooks/useScorePlayer"
 
 type SelectedCell = {
     measureIndex: number
@@ -26,6 +27,9 @@ function StaffNotationView({ onBack }: { onBack: () => void }) {
     const [currentOctave, setCurrentOctave] = useState(4)
     const [currentDuration, setCurrentDuration] = useState(1)
     const [currentAccidental, setCurrentAccidental] = useState("")
+
+    const { playbackState, currentPosition, play, pause, stop, togglePlayPause } = useScorePlayer(score)
+    const scrollViewRef = useRef<ScrollView>(null)
 
     const beatsPerMeasure = score.timeSignature.beats
 
@@ -125,12 +129,48 @@ function StaffNotationView({ onBack }: { onBack: () => void }) {
         ? `小节 ${selectedNote.measureIndex + 1} | 拍 ${selectedNote.beat + 1} | 八度 ${currentOctave} | 时值 ${currentDuration}${accidentalLabel ? ` | ${accidentalLabel}` : ""}`
         : "点击五线谱选择位置"
 
+    // 播放时自动滚动到当前位置
+    const BEAT_WIDTH = 70
+    const LEFT_MARGIN = 60
+    const beatsPerMeasureForScroll = score.timeSignature.beats
+    useEffect(() => {
+        if (currentPosition && scrollViewRef.current) {
+            const x = LEFT_MARGIN + currentPosition.measureIndex * beatsPerMeasureForScroll * BEAT_WIDTH + currentPosition.beat * BEAT_WIDTH
+            scrollViewRef.current.scrollTo({ x: Math.max(0, x - 150), animated: true })
+        }
+    }, [currentPosition, beatsPerMeasureForScroll])
+
     return (
         <View style={styles.container}>
-            <TouchableOpacity style={styles.backButton} onPress={onBack}>
-                <Text style={styles.backButtonText}>← 返回</Text>
-            </TouchableOpacity>
+            <View style={styles.topBar}>
+                <TouchableOpacity style={styles.backButton} onPress={onBack}>
+                    <Text style={styles.backButtonText}>← 返回</Text>
+                </TouchableOpacity>
+                <View style={styles.playbackControls}>
+                    <TouchableOpacity
+                        style={[
+                            styles.playBtn,
+                            playbackState === "playing" && styles.playBtnActive,
+                        ]}
+                        onPress={togglePlayPause}
+                    >
+                        <Text style={[
+                            styles.playBtnText,
+                            playbackState === "playing" && styles.playBtnTextActive,
+                        ]}>
+                            {playbackState === "playing" ? "⏸ 暂停" : "▶ 播放"}
+                        </Text>
+                    </TouchableOpacity>
+                    {playbackState !== "stopped" && (
+                        <TouchableOpacity style={styles.stopBtn} onPress={stop}>
+                            <Text style={styles.stopBtnText}>⏹ 停止</Text>
+                        </TouchableOpacity>
+                    )}
+                    <Text style={styles.bpmText}>{score.bpm} BPM</Text>
+                </View>
+            </View>
             <ScrollView
+                ref={scrollViewRef}
                 horizontal
                 style={styles.scrollView}
                 contentContainerStyle={styles.scrollContent}
@@ -141,6 +181,7 @@ function StaffNotationView({ onBack }: { onBack: () => void }) {
                     timeSignature={score.timeSignature}
                     selectedNote={selectedNote}
                     onNoteSelect={handleNoteSelect}
+                    playbackPosition={currentPosition}
                 />
             </ScrollView>
             <StaffToolbar
@@ -367,15 +408,63 @@ const styles = StyleSheet.create({
     scrollContent: {
         flexGrow: 1,
     },
-    backButton: {
-        paddingHorizontal: 16,
-        paddingVertical: 12,
+    topBar: {
+        flexDirection: "row",
+        alignItems: "center",
+        justifyContent: "space-between",
         backgroundColor: "#f5f5f5",
+        paddingHorizontal: 12,
+        paddingVertical: 8,
+        borderBottomWidth: 1,
+        borderBottomColor: "#e5e7eb",
+    },
+    backButton: {
+        paddingHorizontal: 8,
+        paddingVertical: 6,
     },
     backButtonText: {
         fontSize: 16,
         color: "#007AFF",
         fontWeight: "500",
+    },
+    playbackControls: {
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 8,
+    },
+    playBtn: {
+        paddingHorizontal: 16,
+        paddingVertical: 8,
+        borderRadius: 8,
+        backgroundColor: "#22c55e",
+    },
+    playBtnActive: {
+        backgroundColor: "#f59e0b",
+    },
+    playBtnText: {
+        fontSize: 14,
+        fontWeight: "600",
+        color: "#ffffff",
+    },
+    playBtnTextActive: {
+        color: "#ffffff",
+    },
+    stopBtn: {
+        paddingHorizontal: 12,
+        paddingVertical: 8,
+        borderRadius: 8,
+        backgroundColor: "#ef4444",
+    },
+    stopBtnText: {
+        fontSize: 14,
+        fontWeight: "600",
+        color: "#ffffff",
+    },
+    bpmText: {
+        fontSize: 13,
+        color: "#6b7280",
+        fontWeight: "500",
+        marginLeft: 4,
     },
     placeholderContainer: {
         flex: 1,

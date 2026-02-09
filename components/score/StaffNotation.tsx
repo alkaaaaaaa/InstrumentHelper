@@ -35,6 +35,8 @@ const NOTE_COLOR = "#1a1a1a"
 const BARLINE_COLOR = "#6b7280"
 const SELECTED_COLOR = "rgba(59, 130, 246, 0.3)"
 const SELECTED_BORDER = "rgba(59, 130, 246, 0.8)"
+const PLAYBACK_COLOR = "rgba(34, 197, 94, 0.25)"
+const PLAYBACK_BORDER = "rgba(34, 197, 94, 0.8)"
 const LEDGER_LINE_COLOR = "#9ca3af"
 
 // eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -135,11 +137,17 @@ type SelectedNote = {
     beat: number
 }
 
+type PlaybackPosition = {
+    measureIndex: number
+    beat: number
+}
+
 type Props = {
     measures: Measure[]
     timeSignature: TimeSignature
     selectedNote: SelectedNote | null
     onNoteSelect?: (note: SelectedNote) => void
+    playbackPosition?: PlaybackPosition | null
 }
 
 export function StaffNotation({
@@ -147,6 +155,7 @@ export function StaffNotation({
     timeSignature,
     selectedNote,
     onNoteSelect,
+    playbackPosition,
 }: Props) {
     const font = useFont(fontFile, NOTE_FONT_SIZE)
     const clefFont = useFont(fontFile, CLEF_FONT_SIZE)
@@ -292,6 +301,33 @@ export function StaffNotation({
                         />
                     </React.Fragment>
                 ))}
+
+                {/* ─── 播放高亮 ─── */}
+                {playbackPosition && (() => {
+                    const layout = measureLayout.find(l => l.measure.index === playbackPosition.measureIndex)
+                    if (!layout) return null
+                    const cx = beatX(layout.startX, playbackPosition.beat)
+                    return (
+                        <Group>
+                            <Rect
+                                x={cx - BEAT_WIDTH / 2 + 4}
+                                y={staffLineY(5) - 10}
+                                width={BEAT_WIDTH - 8}
+                                height={staffHeight + 20}
+                                color={PLAYBACK_COLOR}
+                            />
+                            <Rect
+                                x={cx - BEAT_WIDTH / 2 + 4}
+                                y={staffLineY(5) - 10}
+                                width={BEAT_WIDTH - 8}
+                                height={staffHeight + 20}
+                                color={PLAYBACK_BORDER}
+                                style="stroke"
+                                strokeWidth={1.5}
+                            />
+                        </Group>
+                    )
+                })()}
 
                 {/* ─── 选中高亮 ─── */}
                 {selectedNote && (() => {
