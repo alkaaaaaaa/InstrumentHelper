@@ -24,8 +24,12 @@ export type Measure = { // 小节
 }
 
 export type Score = { // 谱子
+    _id?: string
+    title?: string
     bpm: number
     timeSignature: TimeSignature
     tuning?: string[]    // 调弦，默认标准调弦 ["E2","A2","D3","G3","B3","E4"]
     measures: Measure[]
+    createdAt?: string
+    updatedAt?: string
 }

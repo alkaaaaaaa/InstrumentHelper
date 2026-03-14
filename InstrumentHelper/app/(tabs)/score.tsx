@@ -1,12 +1,12 @@
 import React, { useState, useCallback, useRef, useEffect } from "react"
-import { View, ScrollView, StyleSheet, Text, TouchableOpacity } from "react-native"
+import { View, ScrollView, StyleSheet, Text, TouchableOpacity, Alert, ActivityIndicator, FlatList, LayoutChangeEvent } from "react-native"
 import { TabStaff } from "../../components/score/TabStaff"
 import { EditorToolbar } from "../../components/score/EditorToolbar"
-import { StaffNotation } from "../../components/score/StaffNotation"
+import { StaffNotation, BEAT_WIDTH, LEFT_MARGIN } from "../../components/score/StaffNotation"
 import { StaffToolbar } from "../../components/score/StaffToolbar"
-import { demoScore } from "../../data/demoScore"
 import { Measure, Note, TabNote, Score as ScoreType } from "../../models/Score"
 import { useScorePlayer } from "../../hooks/useScorePlayer"
+import { scoreApi, ScoreListItem } from "../../utils/api"
 
 type SelectedCell = {
     measureIndex: number
@@ -21,8 +21,21 @@ type SelectedStaffNote = {
     beat: number
 }
 
-function StaffNotationView({ onBack }: { onBack: () => void }) {
-    const [score, setScore] = useState<ScoreType>(demoScore)
+const emptyScore: ScoreType = {
+    bpm: 120,
+    timeSignature: { beats: 4, beatValue: 4 },
+    measures: [
+        { index: 0, notes: [], tabNotes: [] },
+        { index: 1, notes: [], tabNotes: [] },
+        { index: 2, notes: [], tabNotes: [] },
+        { index: 3, notes: [], tabNotes: [] },
+    ],
+}
+
+function StaffNotationView({ onBack, initialScore, scoreId }: { onBack: () => void; initialScore?: ScoreType; scoreId?: string }) {
+    const [score, setScore] = useState<ScoreType>(initialScore || emptyScore)
+    const [currentScoreId, setCurrentScoreId] = useState<string | undefined>(scoreId)
+    const [saving, setSaving] = useState(false)
     const [selectedNote, setSelectedNote] = useState<SelectedStaffNote | null>(null)
     const [currentOctave, setCurrentOctave] = useState(4)
     const [currentDuration, setCurrentDuration] = useState(1)
@@ -30,6 +43,43 @@ function StaffNotationView({ onBack }: { onBack: () => void }) {
 
     const { playbackState, currentPosition, play, pause, stop, togglePlayPause } = useScorePlayer(score)
     const scrollViewRef = useRef<ScrollView>(null)
+    const [canvasHeight, setCanvasHeight] = useState(0)
+
+    const canvasHeightSet = useRef(false)
+    const handleScrollViewLayout = useCallback((e: LayoutChangeEvent) => {
+        const h = e.nativeEvent.layout.height
+        if (h > 0 && !canvasHeightSet.current) {
+            canvasHeightSet.current = true
+            setCanvasHeight(h)
+        }
+    }, [])
+
+    const handleSave = useCallback(async () => {
+        setSaving(true)
+        try {
+            const payload = {
+                title: score.title || "未命名乐谱",
+                bpm: score.bpm,
+                timeSignature: score.timeSignature,
+                tuning: score.tuning,
+                measures: score.measures,
+            }
+            if (currentScoreId) {
+                const updated = await scoreApi.update(currentScoreId, payload)
+                setScore(prev => ({ ...prev, ...updated }))
+                Alert.alert("保存成功", "乐谱已更新")
+            } else {
+                const created = await scoreApi.create(payload)
+                setCurrentScoreId(created._id)
+                setScore(prev => ({ ...prev, ...created }))
+                Alert.alert("保存成功", "乐谱已创建")
+            }
+        } catch (e) {
+            Alert.alert("保存失败", "请检查网络连接和后端服务")
+        } finally {
+            setSaving(false)
+        }
+    }, [score, currentScoreId])
 
     const beatsPerMeasure = score.timeSignature.beats
 
@@ -130,8 +180,6 @@ function StaffNotationView({ onBack }: { onBack: () => void }) {
         : "点击五线谱选择位置"
 
     // 播放时自动滚动到当前位置
-    const BEAT_WIDTH = 70
-    const LEFT_MARGIN = 60
     const beatsPerMeasureForScroll = score.timeSignature.beats
     useEffect(() => {
         if (currentPosition && scrollViewRef.current) {
@@ -161,12 +209,23 @@ function StaffNotationView({ onBack }: { onBack: () => void }) {
                             {playbackState === "playing" ? "⏸ 暂停" : "▶ 播放"}
                         </Text>
                     </TouchableOpacity>
-                    {playbackState !== "stopped" && (
-                        <TouchableOpacity style={styles.stopBtn} onPress={stop}>
-                            <Text style={styles.stopBtnText}>⏹ 停止</Text>
-                        </TouchableOpacity>
-                    )}
+                    <TouchableOpacity
+                        style={[styles.stopBtn, playbackState === "stopped" && { opacity: 0 }]}
+                        onPress={stop}
+                        disabled={playbackState === "stopped"}
+                    >
+                        <Text style={styles.stopBtnText}>⏹ 停止</Text>
+                    </TouchableOpacity>
                     <Text style={styles.bpmText}>{score.bpm} BPM</Text>
+                    <TouchableOpacity
+                        style={[styles.saveBtn, saving && styles.saveBtnDisabled]}
+                        onPress={handleSave}
+                        disabled={saving}
+                    >
+                        <Text style={styles.saveBtnText}>
+                            {saving ? "保存中..." : "💾 保存"}
+                        </Text>
+                    </TouchableOpacity>
                 </View>
             </View>
             <ScrollView
@@ -175,14 +234,33 @@ function StaffNotationView({ onBack }: { onBack: () => void }) {
                 style={styles.scrollView}
                 contentContainerStyle={styles.scrollContent}
                 showsHorizontalScrollIndicator={true}
+                onLayout={handleScrollViewLayout}
             >
-                <StaffNotation
-                    measures={score.measures}
-                    timeSignature={score.timeSignature}
-                    selectedNote={selectedNote}
-                    onNoteSelect={handleNoteSelect}
-                    playbackPosition={currentPosition}
-                />
+                <View style={{ position: "relative" }}>
+                    <StaffNotation
+                        measures={score.measures}
+                        timeSignature={score.timeSignature}
+                        selectedNote={selectedNote}
+                        onNoteSelect={handleNoteSelect}
+                        height={canvasHeight}
+                    />
+                    {currentPosition && canvasHeight > 0 && (
+                        <View
+                            pointerEvents="none"
+                            style={{
+                                position: "absolute",
+                                left: 0,
+                                top: 0,
+                                width: BEAT_WIDTH - 8,
+                                height: canvasHeight,
+                                backgroundColor: "rgba(34, 197, 94, 0.25)",
+                                borderWidth: 1.5,
+                                borderColor: "rgba(34, 197, 94, 0.8)",
+                                transform: [{ translateX: LEFT_MARGIN + currentPosition.measureIndex * beatsPerMeasure * BEAT_WIDTH + currentPosition.beat * BEAT_WIDTH - BEAT_WIDTH / 2 + 4 }],
+                            }}
+                        />
+                    )}
+                </View>
             </ScrollView>
             <StaffToolbar
                 onNoteInput={handleNoteInput}
@@ -202,9 +280,38 @@ function StaffNotationView({ onBack }: { onBack: () => void }) {
     )
 }
 
-function TabNotationEditor({ onBack }: { onBack: () => void }) {
-    const [score, setScore] = useState<ScoreType>(demoScore)
+function TabNotationEditor({ onBack, initialScore, scoreId }: { onBack: () => void; initialScore?: ScoreType; scoreId?: string }) {
+    const [score, setScore] = useState<ScoreType>(initialScore || emptyScore)
+    const [currentScoreId, setCurrentScoreId] = useState<string | undefined>(scoreId)
+    const [saving, setSaving] = useState(false)
     const [selectedCell, setSelectedCell] = useState<SelectedCell | null>(null)
+
+    const handleSave = useCallback(async () => {
+        setSaving(true)
+        try {
+            const payload = {
+                title: score.title || "未命名乐谱",
+                bpm: score.bpm,
+                timeSignature: score.timeSignature,
+                tuning: score.tuning,
+                measures: score.measures,
+            }
+            if (currentScoreId) {
+                const updated = await scoreApi.update(currentScoreId, payload)
+                setScore(prev => ({ ...prev, ...updated }))
+                Alert.alert("保存成功", "乐谱已更新")
+            } else {
+                const created = await scoreApi.create(payload)
+                setCurrentScoreId(created._id)
+                setScore(prev => ({ ...prev, ...created }))
+                Alert.alert("保存成功", "乐谱已创建")
+            }
+        } catch (e) {
+            Alert.alert("保存失败", "请检查网络连接和后端服务")
+        } finally {
+            setSaving(false)
+        }
+    }, [score, currentScoreId])
 
     const beatsPerMeasure = score.timeSignature.beats
 
@@ -326,9 +433,20 @@ function TabNotationEditor({ onBack }: { onBack: () => void }) {
 
     return (
         <View style={styles.container}>
-            <TouchableOpacity style={styles.backButton} onPress={onBack}>
-                <Text style={styles.backButtonText}>← 返回</Text>
-            </TouchableOpacity>
+            <View style={styles.topBar}>
+                <TouchableOpacity style={styles.backButton} onPress={onBack}>
+                    <Text style={styles.backButtonText}>← 返回</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                    style={[styles.saveBtn, saving && styles.saveBtnDisabled]}
+                    onPress={handleSave}
+                    disabled={saving}
+                >
+                    <Text style={styles.saveBtnText}>
+                        {saving ? "保存中..." : "💾 保存"}
+                    </Text>
+                </TouchableOpacity>
+            </View>
             <ScrollView
                 horizontal
                 style={styles.scrollView}
@@ -358,40 +476,143 @@ function TabNotationEditor({ onBack }: { onBack: () => void }) {
 
 export default function Score() {
     const [mode, setMode] = useState<ScoreMode>("menu")
+    const [scoreList, setScoreList] = useState<ScoreListItem[]>([])
+    const [loading, setLoading] = useState(false)
+    const [editingScore, setEditingScore] = useState<ScoreType | undefined>()
+    const [editingScoreId, setEditingScoreId] = useState<string | undefined>()
+
+    const loadScores = useCallback(async () => {
+        setLoading(true)
+        try {
+            const list = await scoreApi.list()
+            setScoreList(list)
+        } catch {
+            // silently fail - backend might not be running
+        } finally {
+            setLoading(false)
+        }
+    }, [])
+
+    useEffect(() => {
+        if (mode === "menu") loadScores()
+    }, [mode, loadScores])
+
+    const handleOpenScore = useCallback(async (item: ScoreListItem, targetMode: ScoreMode) => {
+        try {
+            const full = await scoreApi.get(item._id)
+            setEditingScore(full)
+            setEditingScoreId(item._id)
+            setMode(targetMode)
+        } catch {
+            Alert.alert("加载失败", "无法加载乐谱数据")
+        }
+    }, [])
+
+    const handleDeleteScore = useCallback((item: ScoreListItem) => {
+        Alert.alert("删除确认", `确定要删除「${item.title}」吗？`, [
+            { text: "取消", style: "cancel" },
+            {
+                text: "删除", style: "destructive", onPress: async () => {
+                    try {
+                        await scoreApi.delete(item._id)
+                        setScoreList(prev => prev.filter(s => s._id !== item._id))
+                    } catch {
+                        Alert.alert("删除失败", "请检查网络连接")
+                    }
+                }
+            },
+        ])
+    }, [])
+
+    const handleBack = useCallback(() => {
+        setEditingScore(undefined)
+        setEditingScoreId(undefined)
+        setMode("menu")
+    }, [])
+
+    const handleNewScore = useCallback((targetMode: ScoreMode) => {
+        setEditingScore(undefined)
+        setEditingScoreId(undefined)
+        setMode(targetMode)
+    }, [])
 
     if (mode === "staff") {
-        return <StaffNotationView onBack={() => setMode("menu")} />
+        return <StaffNotationView onBack={handleBack} initialScore={editingScore} scoreId={editingScoreId} />
     }
 
     if (mode === "tab") {
-        return <TabNotationEditor onBack={() => setMode("menu")} />
+        return <TabNotationEditor onBack={handleBack} initialScore={editingScore} scoreId={editingScoreId} />
     }
+
+    const renderScoreItem = ({ item }: { item: ScoreListItem }) => (
+        <View style={styles.scoreItem}>
+            <View style={styles.scoreItemInfo}>
+                <Text style={styles.scoreItemTitle}>{item.title}</Text>
+                <Text style={styles.scoreItemMeta}>
+                    {item.bpm} BPM · {item.timeSignature.beats}/{item.timeSignature.beatValue} · {new Date(item.updatedAt).toLocaleDateString()}
+                </Text>
+            </View>
+            <View style={styles.scoreItemActions}>
+                <TouchableOpacity style={styles.scoreItemBtn} onPress={() => handleOpenScore(item, "staff")}>
+                    <Text style={styles.scoreItemBtnText}>五线谱</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.scoreItemBtn} onPress={() => handleOpenScore(item, "tab")}>
+                    <Text style={styles.scoreItemBtnText}>六线谱</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.scoreItemDeleteBtn} onPress={() => handleDeleteScore(item)}>
+                    <Text style={styles.scoreItemDeleteText}>删除</Text>
+                </TouchableOpacity>
+            </View>
+        </View>
+    )
 
     return (
         <View style={styles.menuContainer}>
             <Text style={styles.menuTitle}>乐谱编辑</Text>
-            <Text style={styles.menuSubtitle}>选择乐谱类型开始编辑</Text>
+            <Text style={styles.menuSubtitle}>新建乐谱或打开已保存的乐谱</Text>
 
             <View style={styles.buttonGroup}>
                 <TouchableOpacity
                     style={styles.menuButton}
-                    onPress={() => setMode("staff")}
+                    onPress={() => handleNewScore("staff")}
                     activeOpacity={0.7}
                 >
                     <Text style={styles.menuButtonIcon}>🎼</Text>
                     <Text style={styles.menuButtonTitle}>五线谱</Text>
-                    <Text style={styles.menuButtonDesc}>标准五线谱记谱法</Text>
+                    <Text style={styles.menuButtonDesc}>新建五线谱</Text>
                 </TouchableOpacity>
 
                 <TouchableOpacity
                     style={styles.menuButton}
-                    onPress={() => setMode("tab")}
+                    onPress={() => handleNewScore("tab")}
                     activeOpacity={0.7}
                 >
                     <Text style={styles.menuButtonIcon}>🎸</Text>
                     <Text style={styles.menuButtonTitle}>六线谱</Text>
-                    <Text style={styles.menuButtonDesc}>吉他六线谱编辑器</Text>
+                    <Text style={styles.menuButtonDesc}>新建六线谱</Text>
                 </TouchableOpacity>
+            </View>
+
+            <View style={styles.listSection}>
+                <View style={styles.listHeader}>
+                    <Text style={styles.listTitle}>已保存乐谱</Text>
+                    <TouchableOpacity onPress={loadScores}>
+                        <Text style={styles.refreshText}>刷新</Text>
+                    </TouchableOpacity>
+                </View>
+                {loading ? (
+                    <ActivityIndicator style={styles.loader} color="#007AFF" />
+                ) : scoreList.length === 0 ? (
+                    <Text style={styles.emptyText}>暂无已保存的乐谱</Text>
+                ) : (
+                    <FlatList
+                        data={scoreList}
+                        keyExtractor={item => item._id}
+                        renderItem={renderScoreItem}
+                        style={styles.scoreList}
+                        contentContainerStyle={styles.scoreListContent}
+                    />
+                )}
             </View>
         </View>
     )
@@ -486,10 +707,24 @@ const styles = StyleSheet.create({
         fontSize: 16,
         color: "#999",
     },
+    saveBtn: {
+        paddingHorizontal: 14,
+        paddingVertical: 8,
+        borderRadius: 8,
+        backgroundColor: "#3b82f6",
+    },
+    saveBtnDisabled: {
+        opacity: 0.5,
+    },
+    saveBtnText: {
+        fontSize: 14,
+        fontWeight: "600",
+        color: "#ffffff",
+    },
     menuContainer: {
         flex: 1,
         backgroundColor: "#f8f9fa",
-        justifyContent: "center",
+        paddingTop: 60,
         alignItems: "center",
         paddingHorizontal: 24,
     },
@@ -502,11 +737,12 @@ const styles = StyleSheet.create({
     menuSubtitle: {
         fontSize: 15,
         color: "#888",
-        marginBottom: 40,
+        marginBottom: 24,
     },
     buttonGroup: {
         flexDirection: "row",
         gap: 16,
+        marginBottom: 32,
     },
     menuButton: {
         backgroundColor: "#ffffff",
@@ -535,5 +771,90 @@ const styles = StyleSheet.create({
         fontSize: 13,
         color: "#999",
         textAlign: "center",
+    },
+    listSection: {
+        width: "100%",
+        flex: 1,
+    },
+    listHeader: {
+        flexDirection: "row",
+        justifyContent: "space-between",
+        alignItems: "center",
+        marginBottom: 12,
+    },
+    listTitle: {
+        fontSize: 18,
+        fontWeight: "600",
+        color: "#1a1a1a",
+    },
+    refreshText: {
+        fontSize: 14,
+        color: "#007AFF",
+        fontWeight: "500",
+    },
+    loader: {
+        marginTop: 24,
+    },
+    emptyText: {
+        textAlign: "center",
+        color: "#999",
+        marginTop: 24,
+        fontSize: 14,
+    },
+    scoreList: {
+        flex: 1,
+    },
+    scoreListContent: {
+        paddingBottom: 24,
+    },
+    scoreItem: {
+        backgroundColor: "#ffffff",
+        borderRadius: 12,
+        padding: 16,
+        marginBottom: 10,
+        shadowColor: "#000",
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.05,
+        shadowRadius: 4,
+        elevation: 2,
+    },
+    scoreItemInfo: {
+        marginBottom: 10,
+    },
+    scoreItemTitle: {
+        fontSize: 16,
+        fontWeight: "600",
+        color: "#1a1a1a",
+        marginBottom: 4,
+    },
+    scoreItemMeta: {
+        fontSize: 13,
+        color: "#888",
+    },
+    scoreItemActions: {
+        flexDirection: "row",
+        gap: 8,
+    },
+    scoreItemBtn: {
+        paddingHorizontal: 14,
+        paddingVertical: 6,
+        borderRadius: 6,
+        backgroundColor: "#f0f0f0",
+    },
+    scoreItemBtnText: {
+        fontSize: 13,
+        fontWeight: "500",
+        color: "#333",
+    },
+    scoreItemDeleteBtn: {
+        paddingHorizontal: 14,
+        paddingVertical: 6,
+        borderRadius: 6,
+        backgroundColor: "#fef2f2",
+    },
+    scoreItemDeleteText: {
+        fontSize: 13,
+        fontWeight: "500",
+        color: "#ef4444",
     },
 })

@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useState } from "react"
+import React, { useCallback, useMemo, memo } from "react"
 import {
     Canvas,
     Line,
@@ -10,15 +10,15 @@ import {
     useFont,
     vec,
 } from "@shopify/react-native-skia"
-import { Pressable, View, LayoutChangeEvent } from "react-native"
+import { Pressable, View } from "react-native"
 import { Measure, Note, TimeSignature } from "../../models/Score"
 
 // ─── 布局常量 ───
 const STAFF_LINE_COUNT = 5
 const HALF_STEP = 8              // 半个线间距（相邻音高之间的距离）
 const LINE_SPACING = HALF_STEP * 2  // 线间距
-const BEAT_WIDTH = 70             // 每拍宽度
-const LEFT_MARGIN = 60            // 左侧留白（放谱号）
+export const BEAT_WIDTH = 70      // 每拍宽度
+export const LEFT_MARGIN = 60     // 左侧留白（放谱号）
 const RIGHT_MARGIN = 20
 const LABEL_BOTTOM_PADDING = 12   // 音名标注距 Canvas 底部的距离
 const NOTE_HEAD_RX = 7            // 符头水平半径
@@ -137,35 +137,25 @@ type SelectedNote = {
     beat: number
 }
 
-type PlaybackPosition = {
-    measureIndex: number
-    beat: number
-}
-
 type Props = {
     measures: Measure[]
     timeSignature: TimeSignature
     selectedNote: SelectedNote | null
     onNoteSelect?: (note: SelectedNote) => void
-    playbackPosition?: PlaybackPosition | null
+    height: number
 }
 
-export function StaffNotation({
+function StaffNotationComponent({
     measures,
     timeSignature,
     selectedNote,
     onNoteSelect,
-    playbackPosition,
+    height,
 }: Props) {
     const font = useFont(fontFile, NOTE_FONT_SIZE)
     const clefFont = useFont(fontFile, CLEF_FONT_SIZE)
-    const [containerHeight, setContainerHeight] = useState(0)
 
     const beatsPerMeasure = timeSignature.beats
-
-    const handleLayout = useCallback((e: LayoutChangeEvent) => {
-        setContainerHeight(e.nativeEvent.layout.height)
-    }, [])
 
     // 计算每个小节的起始 X 坐标
     const measureLayout = useMemo(() => {
@@ -180,8 +170,7 @@ export function StaffNotation({
 
     const totalWidth = LEFT_MARGIN + measures.length * beatsPerMeasure * BEAT_WIDTH + RIGHT_MARGIN
     const staffHeight = (STAFF_LINE_COUNT - 1) * LINE_SPACING
-    // Canvas 高度 = 容器高度（铺满）
-    const totalHeight = containerHeight
+    const totalHeight = height
 
     // 五线谱垂直居中：staffTopY 是第5线（最高线）的 Y 坐标
     // 留出底部标注区域（NOTE_FONT_SIZE + LABEL_BOTTOM_PADDING），剩余空间居中
@@ -229,43 +218,42 @@ export function StaffNotation({
         }
     }, [measureLayout, onNoteSelect, beatsPerMeasure])
 
-    if (!font || !clefFont) return null
-
-    // 容器高度还未获取时，先渲染空 View 触发 onLayout
-    if (containerHeight === 0) {
-        return (
-            <View style={{ flex: 1 }} onLayout={handleLayout} />
-        )
-    }
+    if (height === 0) return null
 
     return (
-        <View style={{ flex: 1 }} onLayout={handleLayout}>
+        <View style={{ flex: 1 }}>
             <Pressable onPress={handlePress}>
                 <Canvas style={{ width: totalWidth, height: totalHeight }}>
                 {/* ─── 高音谱号标记 ─── */}
-                <SkiaText
-                    x={10}
-                    y={staffLineY(3) + 6}
-                    text="G"
-                    font={clefFont}
-                    color="#6b7280"
-                />
+                {clefFont && (
+                    <SkiaText
+                        x={10}
+                        y={staffLineY(3) + 6}
+                        text="G"
+                        font={clefFont}
+                        color="#6b7280"
+                    />
+                )}
 
                 {/* ─── 拍号 ─── */}
-                <SkiaText
-                    x={LEFT_MARGIN - 22}
-                    y={staffLineY(4) + NOTE_FONT_SIZE / 3}
-                    text={timeSignature.beats.toString()}
-                    font={font}
-                    color="#6b7280"
-                />
-                <SkiaText
-                    x={LEFT_MARGIN - 22}
-                    y={staffLineY(2) + NOTE_FONT_SIZE / 3}
-                    text={timeSignature.beatValue.toString()}
-                    font={font}
-                    color="#6b7280"
-                />
+                {font && (
+                    <SkiaText
+                        x={LEFT_MARGIN - 22}
+                        y={staffLineY(4) + NOTE_FONT_SIZE / 3}
+                        text={timeSignature.beats.toString()}
+                        font={font}
+                        color="#6b7280"
+                    />
+                )}
+                {font && (
+                    <SkiaText
+                        x={LEFT_MARGIN - 22}
+                        y={staffLineY(2) + NOTE_FONT_SIZE / 3}
+                        text={timeSignature.beatValue.toString()}
+                        font={font}
+                        color="#6b7280"
+                    />
+                )}
 
                 {/* ─── 五条线 ─── */}
                 {Array.from({ length: STAFF_LINE_COUNT }).map((_, i) => {
@@ -302,32 +290,6 @@ export function StaffNotation({
                     </React.Fragment>
                 ))}
 
-                {/* ─── 播放高亮 ─── */}
-                {playbackPosition && (() => {
-                    const layout = measureLayout.find(l => l.measure.index === playbackPosition.measureIndex)
-                    if (!layout) return null
-                    const cx = beatX(layout.startX, playbackPosition.beat)
-                    return (
-                        <Group>
-                            <Rect
-                                x={cx - BEAT_WIDTH / 2 + 4}
-                                y={staffLineY(5) - 10}
-                                width={BEAT_WIDTH - 8}
-                                height={staffHeight + 20}
-                                color={PLAYBACK_COLOR}
-                            />
-                            <Rect
-                                x={cx - BEAT_WIDTH / 2 + 4}
-                                y={staffLineY(5) - 10}
-                                width={BEAT_WIDTH - 8}
-                                height={staffHeight + 20}
-                                color={PLAYBACK_BORDER}
-                                style="stroke"
-                                strokeWidth={1.5}
-                            />
-                        </Group>
-                    )
-                })()}
 
                 {/* ─── 选中高亮 ─── */}
                 {selectedNote && (() => {
@@ -409,21 +371,20 @@ export function StaffNotation({
                                     strokeWidth={appearance.filled ? 0 : 1.5}
                                 />
 
-                                {/* 符杆 */}
-                                {appearance.hasStem && (
-                                    <Line
-                                        p1={vec(
-                                            stemUp ? cx + NOTE_HEAD_RX - 1 : cx - NOTE_HEAD_RX + 1,
-                                            cy
-                                        )}
-                                        p2={vec(
-                                            stemUp ? cx + NOTE_HEAD_RX - 1 : cx - NOTE_HEAD_RX + 1,
-                                            stemUp ? cy - STEM_LENGTH : cy + STEM_LENGTH
-                                        )}
-                                        color={NOTE_COLOR}
-                                        strokeWidth={STEM_WIDTH}
-                                    />
-                                )}
+                                {/* 符杆（用 Rect 替代 Line，避免 Skia web 的 strokeWidth 渲染问题） */}
+                                {appearance.hasStem && (() => {
+                                    const stemX = (stemUp ? cx + NOTE_HEAD_RX - 1 : cx - NOTE_HEAD_RX + 1) - STEM_WIDTH / 2
+                                    const stemY = stemUp ? cy - STEM_LENGTH : cy
+                                    return (
+                                        <Rect
+                                            x={stemX}
+                                            y={stemY}
+                                            width={STEM_WIDTH}
+                                            height={STEM_LENGTH}
+                                            color={NOTE_COLOR}
+                                        />
+                                    )
+                                })()}
 
                                 {/* 符尾（八分音符及更短） */}
                                 {appearance.flags > 0 && (() => {
@@ -467,3 +428,5 @@ export function StaffNotation({
         </View>
     )
 }
+
+export const StaffNotation = memo(StaffNotationComponent)
