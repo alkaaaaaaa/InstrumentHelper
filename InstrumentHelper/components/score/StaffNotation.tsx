@@ -228,9 +228,10 @@ function StaffNotationComponent({
     }, [])
 
     // 处理点击
-    const handlePress = useCallback((evt: { nativeEvent: { locationX: number; locationY: number } }) => {
-        const { locationX } = evt.nativeEvent
+    const handlePress = useCallback((evt: any) => {
         if (!onNoteSelect) return
+        const locationX: number | undefined = evt?.nativeEvent?.locationX
+        if (locationX == null) return
 
         for (const layout of measureLayout) {
             const mEndX = layout.startX + layout.width
@@ -243,6 +244,8 @@ function StaffNotationComponent({
                     measureIndex: layout.measure.index,
                     beat,
                 })
+                // 点击后主动 blur，防止 Pressable 持续持有焦点并拦截 Enter 键
+                ;(evt?.target as HTMLElement | undefined)?.blur?.()
                 return
             }
         }
