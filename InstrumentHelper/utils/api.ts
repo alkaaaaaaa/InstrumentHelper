@@ -1,4 +1,4 @@
-import { Score } from "../models/Score"
+import { Score, Note, TabNote } from "../models/Score"
 
 const API_BASE = "http://localhost:3000"
 
@@ -12,6 +12,19 @@ export type ScoreListItem = {
 }
 
 export type ScorePayload = Omit<Score, "_id" | "createdAt" | "updatedAt">
+
+export type DetectionResult = {
+  type: "chord" | "scale" | "unknown"
+  name: string
+  root: string
+  tones: string[]
+}
+
+export type AnalyzePayload = {
+  notes: Note[]
+  tabNotes?: TabNote[]
+  tuning?: string[]
+}
 
 export const scoreApi = {
   list: async (): Promise<ScoreListItem[]> => {
@@ -49,5 +62,15 @@ export const scoreApi = {
   delete: async (id: string): Promise<void> => {
     const res = await fetch(`${API_BASE}/scores/${id}`, { method: "DELETE" })
     if (!res.ok) throw new Error("Failed to delete score")
+  },
+
+  analyzeChord: async (payload: AnalyzePayload): Promise<DetectionResult> => {
+    const res = await fetch(`${API_BASE}/scores/analyze`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    })
+    if (!res.ok) throw new Error("Failed to analyze chord")
+    return res.json()
   },
 }

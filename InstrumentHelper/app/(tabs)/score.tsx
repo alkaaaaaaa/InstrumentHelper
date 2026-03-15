@@ -4,9 +4,12 @@ import { TabStaff } from "../../components/score/TabStaff"
 import { EditorToolbar } from "../../components/score/EditorToolbar"
 import { StaffNotation, BEAT_WIDTH, LEFT_MARGIN } from "../../components/score/StaffNotation"
 import { StaffToolbar } from "../../components/score/StaffToolbar"
+import { ChordScaleModal } from "../../components/score/ChordScaleModal"
 import { Measure, Note, TabNote, Score as ScoreType } from "../../models/Score"
 import { useScorePlayer } from "../../hooks/useScorePlayer"
 import { scoreApi, ScoreListItem } from "../../utils/api"
+
+const DEFAULT_TUNING = ["E2", "A2", "D3", "G3", "B3", "E4"]
 
 type SelectedCell = {
     measureIndex: number
@@ -40,6 +43,7 @@ function StaffNotationView({ onBack, initialScore, scoreId }: { onBack: () => vo
     const [currentOctave, setCurrentOctave] = useState(4)
     const [currentDuration, setCurrentDuration] = useState(1)
     const [currentAccidental, setCurrentAccidental] = useState("")
+    const [chordModalVisible, setChordModalVisible] = useState(false)
 
     const { playbackState, currentPosition, play, pause, stop, togglePlayPause } = useScorePlayer(score)
     const scrollViewRef = useRef<ScrollView>(null)
@@ -265,6 +269,12 @@ function StaffNotationView({ onBack, initialScore, scoreId }: { onBack: () => vo
                     </TouchableOpacity>
                     <Text style={styles.bpmText}>{score.bpm} BPM</Text>
                     <TouchableOpacity
+                        style={styles.chordBtn}
+                        onPress={() => setChordModalVisible(true)}
+                    >
+                        <Text style={styles.chordBtnText}>🎹 和弦</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
                         style={[styles.saveBtn, saving && styles.saveBtnDisabled]}
                         onPress={handleSave}
                         disabled={saving}
@@ -327,6 +337,13 @@ function StaffNotationView({ onBack, initialScore, scoreId }: { onBack: () => vo
                 currentAccidental={currentAccidental}
                 onAccidentalChange={setCurrentAccidental}
             />
+            <ChordScaleModal
+                visible={chordModalVisible}
+                onClose={() => setChordModalVisible(false)}
+                measure={score.measures[currentPosition?.measureIndex ?? selectedNote?.measureIndex ?? 0] ?? null}
+                tuning={score.tuning ?? DEFAULT_TUNING}
+                measureIndex={currentPosition?.measureIndex ?? selectedNote?.measureIndex ?? 0}
+            />
         </View>
     )
 }
@@ -336,6 +353,7 @@ function TabNotationEditor({ onBack, initialScore, scoreId }: { onBack: () => vo
     const [currentScoreId, setCurrentScoreId] = useState<string | undefined>(scoreId)
     const [saving, setSaving] = useState(false)
     const [selectedCell, setSelectedCell] = useState<SelectedCell | null>(null)
+    const [chordModalVisible, setChordModalVisible] = useState(false)
 
     const handleSave = useCallback(async () => {
         setSaving(true)
@@ -516,15 +534,23 @@ function TabNotationEditor({ onBack, initialScore, scoreId }: { onBack: () => vo
                 <TouchableOpacity style={styles.backButton} onPress={onBack}>
                     <Text style={styles.backButtonText}>← 返回</Text>
                 </TouchableOpacity>
-                <TouchableOpacity
-                    style={[styles.saveBtn, saving && styles.saveBtnDisabled]}
-                    onPress={handleSave}
-                    disabled={saving}
-                >
-                    <Text style={styles.saveBtnText}>
-                        {saving ? "保存中..." : "💾 保存"}
-                    </Text>
-                </TouchableOpacity>
+                <View style={styles.playbackControls}>
+                    <TouchableOpacity
+                        style={styles.chordBtn}
+                        onPress={() => setChordModalVisible(true)}
+                    >
+                        <Text style={styles.chordBtnText}>🎹 和弦</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                        style={[styles.saveBtn, saving && styles.saveBtnDisabled]}
+                        onPress={handleSave}
+                        disabled={saving}
+                    >
+                        <Text style={styles.saveBtnText}>
+                            {saving ? "保存中..." : "💾 保存"}
+                        </Text>
+                    </TouchableOpacity>
+                </View>
             </View>
             <ScrollView
                 horizontal
@@ -548,6 +574,13 @@ function TabNotationEditor({ onBack, initialScore, scoreId }: { onBack: () => vo
                 onMoveUp={handleMoveUp}
                 onMoveDown={handleMoveDown}
                 selectedInfo={selectedInfo}
+            />
+            <ChordScaleModal
+                visible={chordModalVisible}
+                onClose={() => setChordModalVisible(false)}
+                measure={score.measures[selectedCell?.measureIndex ?? 0] ?? null}
+                tuning={score.tuning ?? DEFAULT_TUNING}
+                measureIndex={selectedCell?.measureIndex ?? 0}
             />
         </View>
     )
@@ -785,6 +818,17 @@ const styles = StyleSheet.create({
     placeholderSubtitle: {
         fontSize: 16,
         color: "#999",
+    },
+    chordBtn: {
+        paddingHorizontal: 12,
+        paddingVertical: 8,
+        borderRadius: 8,
+        backgroundColor: "#388E3C",
+    },
+    chordBtnText: {
+        fontSize: 13,
+        fontWeight: "600",
+        color: "#ffffff",
     },
     saveBtn: {
         paddingHorizontal: 14,

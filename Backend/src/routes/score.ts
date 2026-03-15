@@ -1,5 +1,6 @@
 import { Elysia, t } from "elysia"
 import { ScoreModel } from "../models/Score"
+import { detectChordOrScale, extractPitchClasses } from "../utils/chordScaleDetector"
 
 const NoteBody = t.Object({
   pitch: t.String(),
@@ -33,6 +34,21 @@ const ScoreBody = t.Object({
 })
 
 export const scoreRoutes = new Elysia({ prefix: "/scores" })
+  .post(
+    "/analyze",
+    ({ body }) => {
+      const pitchClasses = extractPitchClasses(body.notes, body.tabNotes, body.tuning)
+      return detectChordOrScale(pitchClasses)
+    },
+    {
+      body: t.Object({
+        notes: t.Array(NoteBody),
+        tabNotes: t.Optional(t.Array(TabNoteBody)),
+        tuning: t.Optional(t.Array(t.String())),
+      }),
+    },
+  )
+
   .get("/", async () => {
     const scores = await ScoreModel.find({}, "title bpm timeSignature updatedAt createdAt").sort({ updatedAt: -1 })
     return scores
