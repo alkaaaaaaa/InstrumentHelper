@@ -5,6 +5,7 @@ import {
     Text as SkiaText,
     Oval,
     Rect,
+    RoundedRect,
     Group,
     Path,
     useFont,
@@ -149,6 +150,12 @@ type SelectedNote = {
     beat: number
 }
 
+export type ChordAnnotation = {
+    measureIndex: number
+    beat: number
+    label: string
+}
+
 type Props = {
     measures: Measure[]
     timeSignature: TimeSignature
@@ -156,6 +163,7 @@ type Props = {
     onNoteSelect?: (note: SelectedNote) => void
     height: number
     selectedStaffPos?: number
+    chordAnnotations?: ChordAnnotation[]
 }
 
 function StaffNotationComponent({
@@ -165,40 +173,53 @@ function StaffNotationComponent({
     onNoteSelect,
     height,
     selectedStaffPos,
+    chordAnnotations,
 }: Props) {
     const font = useFont(fontFile, NOTE_FONT_SIZE)
     const clefFont = useFont(fontFile, CLEF_FONT_SIZE)
+    const chordFont = useFont(fontFile, 11)
 
     const beatsPerMeasure = timeSignature.beats
 
-    // 计算每个小节的起始 X 坐标
-    // 宽度规则：以所有音符的最大结束拍位（start+duration）决定小节宽度，
-    // 确保任何音符都不会超出分割线；满拍时固定为 beatsPerMeasure 列
+    // 稳定布局：不含光标，仅由音符决定宽度，用于计算画布总宽（防止光标移动时画布 resize）
+    const stableMeasureLayout = useMemo(() => {
+        let x = LEFT_MARGIN
+        return measures.map((m) => {
+            const startX = x
+            const notes = m.notes || []
+            const maxLastNoteStart = notes.length > 0
+                ? Math.max(...notes.map(n => n.start))
+                : 0
+            const beatSpan = Math.max(1, Math.ceil(maxLastNoteStart) + 1)
+            const width = beatSpan * BEAT_WIDTH
+            x += width
+            return { startX, width, beatSpan, measure: m }
+        })
+    }, [measures, beatsPerMeasure])
+
+    // 视觉布局：含光标扩展，用于绘制小节线 / 音符 / 幽灵音符（不影响画布宽度）
     const measureLayout = useMemo(() => {
         let x = LEFT_MARGIN
         return measures.map((m) => {
             const startX = x
             const notes = m.notes || []
-            const maxNoteEnd = notes.length > 0
-                ? Math.max(...notes.map(n => n.start + n.duration))
-                : 0
             const maxLastNoteStart = notes.length > 0
                 ? Math.max(...notes.map(n => n.start))
                 : 0
             let beatSpan = Math.max(1, Math.ceil(maxLastNoteStart) + 1)
-
-            // 若光标选中位置超出当前内容，动态扩展一格以显示幽灵音符
+            // 光标在该小节且超出当前内容时，扩展一格以显示幽灵音符
             if (selectedNote && selectedNote.measureIndex === m.index && selectedNote.beat >= beatSpan) {
                 beatSpan = selectedNote.beat + 1
             }
-
             const width = beatSpan * BEAT_WIDTH
             x += width
             return { startX, width, beatSpan, measure: m }
         })
     }, [measures, beatsPerMeasure, selectedNote])
 
-    const totalWidth = measureLayout.reduce((sum, l) => sum + l.width, LEFT_MARGIN) + RIGHT_MARGIN
+    // 画布宽度由稳定布局决定 + beatsPerMeasure 的余量（足以容纳任何光标位置的扩展）
+    const totalWidth = stableMeasureLayout.reduce((sum, l) => sum + l.width, LEFT_MARGIN)
+        + beatsPerMeasure * BEAT_WIDTH + RIGHT_MARGIN
     const staffHeight = (STAFF_LINE_COUNT - 1) * LINE_SPACING
     const totalHeight = height
 
@@ -328,9 +349,7 @@ function StaffNotationComponent({
                 {selectedNote && (() => {
                     const layout = measureLayout.find(l => l.measure.index === selectedNote.measureIndex)
                     if (!layout) return null
-                    const beat = selectedNote.beat
-                    if (beat + 0.5 >= layout.beatSpan) return null
-                    const cx = beatX(layout.startX, beat)
+                    const cx = beatX(layout.startX, selectedNote.beat)
                     return (
                         <Group>
                             <Rect
@@ -357,9 +376,7 @@ function StaffNotationComponent({
                 {selectedNote && selectedStaffPos !== undefined && (() => {
                     const layout = measureLayout.find(l => l.measure.index === selectedNote.measureIndex)
                     if (!layout) return null
-                    const beat = selectedNote.beat
-                    if (beat + 0.5 >= layout.beatSpan) return null  // 已由 measureLayout 扩展，此处不会触发
-                    const cx = beatX(layout.startX, beat)
+                    const cx = beatX(layout.startX, selectedNote.beat)
                     const cy = staffPosToY(selectedStaffPos)
                     const ghostLedger = getLedgerLines(selectedStaffPos)
                     return (
@@ -492,6 +509,33 @@ function StaffNotationComponent({
                             </Group>
                         )
                     })
+                })}
+                {/* ─── 和弦标注（分析按钮触发后显示在对应拍上方） ─── */}
+                {chordAnnotations && chordFont && chordAnnotations.map((ann) => {
+                    const layout = measureLayout.find(l => l.measure.index === ann.measureIndex)
+                    if (!layout) return null
+                    const cx = beatX(layout.startX, ann.beat)
+                    const labelY = staffLineY(5) - 4
+                    const labelW = Math.min(ann.label.length * 6.5 + 10, 72)
+                    return (
+                        <Group key={`chord-${ann.measureIndex}-${ann.beat}`}>
+                            <RoundedRect
+                                x={cx - labelW / 2}
+                                y={labelY - 13}
+                                width={labelW}
+                                height={15}
+                                r={3}
+                                color="rgba(99, 102, 241, 0.18)"
+                            />
+                            <SkiaText
+                                x={cx - labelW / 2 + 4}
+                                y={labelY}
+                                text={ann.label}
+                                font={chordFont}
+                                color="#6366f1"
+                            />
+                        </Group>
+                    )
                 })}
                 </Canvas>
             </Pressable>

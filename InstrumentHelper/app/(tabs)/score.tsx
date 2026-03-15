@@ -2,7 +2,7 @@ import React, { useState, useCallback, useRef, useEffect, useMemo } from "react"
 import { View, ScrollView, StyleSheet, Text, TouchableOpacity, Alert, ActivityIndicator, FlatList, LayoutChangeEvent } from "react-native"
 import { TabStaff } from "../../components/score/TabStaff"
 import { EditorToolbar } from "../../components/score/EditorToolbar"
-import { StaffNotation, BEAT_WIDTH, LEFT_MARGIN, staffPositionToPitch } from "../../components/score/StaffNotation"
+import { StaffNotation, BEAT_WIDTH, LEFT_MARGIN, staffPositionToPitch, ChordAnnotation } from "../../components/score/StaffNotation"
 import { StaffToolbar } from "../../components/score/StaffToolbar"
 import { ChordScaleModal } from "../../components/score/ChordScaleModal"
 import { Measure, Note, TabNote, Score as ScoreType } from "../../models/Score"
@@ -45,6 +45,8 @@ function StaffNotationView({ onBack, initialScore, scoreId }: { onBack: () => vo
     const [currentAccidental, setCurrentAccidental] = useState("")
     const [selectedStaffPos, setSelectedStaffPos] = useState(0)
     const [chordModalVisible, setChordModalVisible] = useState(false)
+    const [chordAnnotations, setChordAnnotations] = useState<ChordAnnotation[]>([])
+    const [analyzing, setAnalyzing] = useState(false)
 
     const { playbackState, currentPosition, play, pause, stop, togglePlayPause } = useScorePlayer(score)
     const scrollViewRef = useRef<ScrollView>(null)
@@ -141,6 +143,16 @@ function StaffNotationView({ onBack, initialScore, scoreId }: { onBack: () => vo
         })
     }, [selectedNote, beatsPerMeasure, score.measures])
 
+    // Refs 持有最新值，供 keydown 处理器读取，避免 stale closure 导致 Enter 随机失效
+    const selectedStaffPosRef = useRef(selectedStaffPos)
+    const currentAccidentalRef = useRef(currentAccidental)
+    const currentDurationRef = useRef(currentDuration)
+    const handleNoteInputRef = useRef(handleNoteInput)
+    selectedStaffPosRef.current = selectedStaffPos
+    currentAccidentalRef.current = currentAccidental
+    currentDurationRef.current = currentDuration
+    handleNoteInputRef.current = handleNoteInput
+
     const handleDelete = useCallback(() => {
         if (!selectedNote) return
 
@@ -165,6 +177,42 @@ function StaffNotationView({ onBack, initialScore, scoreId }: { onBack: () => vo
             return { ...prev, measures: [...prev.measures, newMeasure] }
         })
     }, [])
+
+    const handleAnalyze = useCallback(async () => {
+        setAnalyzing(true)
+        setChordAnnotations([])
+        type BeatGroup = { measureIndex: number; beat: number; notes: Note[] }
+        const groups: BeatGroup[] = []
+        for (const m of score.measures) {
+            const beatMap = new Map<number, Note[]>()
+            for (const n of m.notes || []) {
+                if (!beatMap.has(n.start)) beatMap.set(n.start, [])
+                beatMap.get(n.start)!.push(n)
+            }
+            for (const [beat, notes] of beatMap) {
+                if (notes.length >= 2) {
+                    groups.push({ measureIndex: m.index, beat, notes })
+                }
+            }
+        }
+        const results: ChordAnnotation[] = []
+        for (const g of groups) {
+            try {
+                const res = await scoreApi.analyzeChord({
+                    notes: g.notes,
+                    tuning: score.tuning ?? DEFAULT_TUNING,
+                })
+                if (res.type !== "unknown") {
+                    results.push({ measureIndex: g.measureIndex, beat: g.beat, label: res.name })
+                }
+            } catch { }
+        }
+        setChordAnnotations(results)
+        setAnalyzing(false)
+        if (results.length === 0) {
+            Alert.alert("分析完成", "未检测到和弦（需要同一拍有 2 个以上音符）")
+        }
+    }, [score.measures, score.tuning])
 
     const handleMoveLeft = useCallback(() => {
         setSelectedNote(prev => {
@@ -222,8 +270,9 @@ function StaffNotationView({ onBack, initialScore, scoreId }: { onBack: () => vo
                 setSelectedStaffPos(prev => Math.max(prev - 1, -8))
             } else if (e.key === "Enter") {
                 e.preventDefault()
-                const pitch = staffPositionToPitch(selectedStaffPos, currentAccidental)
-                handleNoteInput(pitch, currentDuration)
+                // 通过 ref 读取最新值，避免 stale closure 导致 Enter 随机失效
+                const pitch = staffPositionToPitch(selectedStaffPosRef.current, currentAccidentalRef.current)
+                handleNoteInputRef.current(pitch, currentDurationRef.current)
             } else if (e.key === "Delete" || e.key === "Backspace") {
                 e.preventDefault()
                 handleDelete()
@@ -234,7 +283,7 @@ function StaffNotationView({ onBack, initialScore, scoreId }: { onBack: () => vo
         }
         window.addEventListener("keydown", handleKeyDown)
         return () => window.removeEventListener("keydown", handleKeyDown)
-    }, [handleMoveLeft, handleMoveRight, handleDelete, togglePlayPause, handleNoteInput, selectedStaffPos, currentAccidental, currentDuration])
+    }, [handleMoveLeft, handleMoveRight, handleDelete, togglePlayPause])
 
     const accidentalLabel = currentAccidental === "#" ? "♯" : currentAccidental === "b" ? "♭" : ""
     const currentPitchLabel = staffPositionToPitch(selectedStaffPos, currentAccidental)
@@ -301,6 +350,15 @@ function StaffNotationView({ onBack, initialScore, scoreId }: { onBack: () => vo
                     </TouchableOpacity>
                     <Text style={styles.bpmText}>{score.bpm} BPM</Text>
                     <TouchableOpacity
+                        style={[styles.analyzeBtn, analyzing && styles.analyzeBtnDisabled]}
+                        onPress={handleAnalyze}
+                        disabled={analyzing}
+                    >
+                        <Text style={styles.analyzeBtnText}>
+                            {analyzing ? "分析中..." : "🔍 分析"}
+                        </Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
                         style={styles.chordBtn}
                         onPress={() => setChordModalVisible(true)}
                     >
@@ -333,6 +391,7 @@ function StaffNotationView({ onBack, initialScore, scoreId }: { onBack: () => vo
                         onNoteSelect={handleNoteSelect}
                         height={canvasHeight}
                         selectedStaffPos={selectedStaffPos}
+                        chordAnnotations={chordAnnotations}
                     />
                     {currentPosition && canvasHeight > 0 && (() => {
                         const measureX = measureStartXs[currentPosition.measureIndex] ?? LEFT_MARGIN
@@ -896,6 +955,21 @@ const styles = StyleSheet.create({
         opacity: 0.5,
     },
     saveBtnText: {
+        fontSize: 14,
+        fontWeight: "600",
+        color: "#ffffff",
+    },
+    analyzeBtn: {
+        backgroundColor: "#6366f1",
+        paddingHorizontal: 12,
+        paddingVertical: 6,
+        borderRadius: 8,
+        marginHorizontal: 4,
+    },
+    analyzeBtnDisabled: {
+        opacity: 0.5,
+    },
+    analyzeBtnText: {
         fontSize: 14,
         fontWeight: "600",
         color: "#ffffff",
