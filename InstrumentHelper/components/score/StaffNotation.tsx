@@ -72,6 +72,18 @@ function parsePitch(pitch: string): { noteName: string; accidental: string; octa
 }
 
 /**
+ * 将五线谱位置转换为音高字符串（staffPos=0 对应 E4）
+ */
+export function staffPositionToPitch(staffPos: number, accidental: string = ""): string {
+    const refAbsolutePos = 4 * 7 + 2  // E4
+    const absolutePos = refAbsolutePos + staffPos
+    const octave = Math.floor(absolutePos / 7)
+    const noteIndex = ((absolutePos % 7) + 7) % 7
+    const noteNames = ["C", "D", "E", "F", "G", "A", "B"]
+    return `${noteNames[noteIndex]}${accidental}${octave}`
+}
+
+/**
  * 将 pitch 字符串（如 "E4", "C#5"）转换为五线谱上的位置
  * 返回值：相对于第一线(E4)的半线间距偏移量
  * 升降号不影响线间位置（C#4 和 C4 在同一位置，只是左侧多一个 # 符号）
@@ -143,6 +155,7 @@ type Props = {
     selectedNote: SelectedNote | null
     onNoteSelect?: (note: SelectedNote) => void
     height: number
+    selectedStaffPos?: number
 }
 
 function StaffNotationComponent({
@@ -151,6 +164,7 @@ function StaffNotationComponent({
     selectedNote,
     onNoteSelect,
     height,
+    selectedStaffPos,
 }: Props) {
     const font = useFont(fontFile, NOTE_FONT_SIZE)
     const clefFont = useFont(fontFile, CLEF_FONT_SIZE)
@@ -165,23 +179,24 @@ function StaffNotationComponent({
         return measures.map((m) => {
             const startX = x
             const notes = m.notes || []
-            // 最后一个音符的起始拍位，决定小节视觉宽度
-            // 用 ceil(maxLastNoteStart) + 1 确保每个音符的视觉中心（start+0.5列）都在分割线左侧
             const maxNoteEnd = notes.length > 0
                 ? Math.max(...notes.map(n => n.start + n.duration))
                 : 0
             const maxLastNoteStart = notes.length > 0
                 ? Math.max(...notes.map(n => n.start))
                 : 0
-            const isFull = maxNoteEnd >= beatsPerMeasure
-            // 统一用 ceil(最后音符起始拍)+1，保证所有音符中心都在分割线左侧
-            // 四分音符填满时刚好等于 beatsPerMeasure；更短音符填满时可能略宽，但不会压线
-            const beatSpan = Math.max(1, Math.ceil(maxLastNoteStart) + 1)
+            let beatSpan = Math.max(1, Math.ceil(maxLastNoteStart) + 1)
+
+            // 若光标选中位置超出当前内容，动态扩展一格以显示幽灵音符
+            if (selectedNote && selectedNote.measureIndex === m.index && selectedNote.beat >= beatSpan) {
+                beatSpan = selectedNote.beat + 1
+            }
+
             const width = beatSpan * BEAT_WIDTH
             x += width
             return { startX, width, beatSpan, measure: m }
         })
-    }, [measures, beatsPerMeasure])
+    }, [measures, beatsPerMeasure, selectedNote])
 
     const totalWidth = measureLayout.reduce((sum, l) => sum + l.width, LEFT_MARGIN) + RIGHT_MARGIN
     const staffHeight = (STAFF_LINE_COUNT - 1) * LINE_SPACING
@@ -311,43 +326,63 @@ function StaffNotationComponent({
                     const layout = measureLayout.find(l => l.measure.index === selectedNote.measureIndex)
                     if (!layout) return null
                     const beat = selectedNote.beat
-                    // beat+0.5 < beatSpan 表示光标中心在分割线左侧，可正常显示
-                    if (beat + 0.5 < layout.beatSpan) {
-                        // 光标在小节内：正常高亮格
-                        const cx = beatX(layout.startX, beat)
-                        return (
-                            <Group>
-                                <Rect
-                                    x={cx - BEAT_WIDTH / 2 + 4}
-                                    y={staffLineY(5) - 10}
-                                    width={BEAT_WIDTH - 8}
-                                    height={staffHeight + 20}
-                                    color={SELECTED_COLOR}
-                                />
-                                <Rect
-                                    x={cx - BEAT_WIDTH / 2 + 4}
-                                    y={staffLineY(5) - 10}
-                                    width={BEAT_WIDTH - 8}
-                                    height={staffHeight + 20}
-                                    color={SELECTED_BORDER}
-                                    style="stroke"
-                                    strokeWidth={1.5}
-                                />
-                            </Group>
-                        )
-                    } else {
-                        // 光标在小节边界：细蓝竖线，表示下一个音符将在此扩展小节
-                        const edgeX = layout.startX + layout.width
-                        return (
+                    if (beat + 0.5 >= layout.beatSpan) return null
+                    const cx = beatX(layout.startX, beat)
+                    return (
+                        <Group>
                             <Rect
-                                x={edgeX - 2}
+                                x={cx - BEAT_WIDTH / 2 + 4}
                                 y={staffLineY(5) - 10}
-                                width={4}
+                                width={BEAT_WIDTH - 8}
+                                height={staffHeight + 20}
+                                color={SELECTED_COLOR}
+                            />
+                            <Rect
+                                x={cx - BEAT_WIDTH / 2 + 4}
+                                y={staffLineY(5) - 10}
+                                width={BEAT_WIDTH - 8}
                                 height={staffHeight + 20}
                                 color={SELECTED_BORDER}
+                                style="stroke"
+                                strokeWidth={1.5}
                             />
-                        )
-                    }
+                        </Group>
+                    )
+                })()}
+
+                {/* ─── 幽灵音符（键盘纵向光标预览） ─── */}
+                {selectedNote && selectedStaffPos !== undefined && (() => {
+                    const layout = measureLayout.find(l => l.measure.index === selectedNote.measureIndex)
+                    if (!layout) return null
+                    const beat = selectedNote.beat
+                    if (beat + 0.5 >= layout.beatSpan) return null  // 已由 measureLayout 扩展，此处不会触发
+                    const cx = beatX(layout.startX, beat)
+                    const cy = staffPosToY(selectedStaffPos)
+                    const ghostLedger = getLedgerLines(selectedStaffPos)
+                    return (
+                        <Group>
+                            {ghostLedger.map((lp) => {
+                                const ly = staffPosToY(lp)
+                                return (
+                                    <Line
+                                        key={`ghost-ledger-${lp}`}
+                                        p1={vec(cx - LEDGER_LINE_HALF, ly)}
+                                        p2={vec(cx + LEDGER_LINE_HALF, ly)}
+                                        color="rgba(59, 130, 246, 0.5)"
+                                        strokeWidth={1}
+                                    />
+                                )
+                            })}
+                            <Oval
+                                x={cx - NOTE_HEAD_RX}
+                                y={cy - NOTE_HEAD_RY}
+                                width={NOTE_HEAD_RX * 2}
+                                height={NOTE_HEAD_RY * 2}
+                                color="rgba(59, 130, 246, 0.55)"
+                                style="fill"
+                            />
+                        </Group>
+                    )
                 })()}
 
                 {/* ─── 音符渲染 ─── */}

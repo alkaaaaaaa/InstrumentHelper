@@ -2,7 +2,7 @@ import React, { useState, useCallback, useRef, useEffect, useMemo } from "react"
 import { View, ScrollView, StyleSheet, Text, TouchableOpacity, Alert, ActivityIndicator, FlatList, LayoutChangeEvent } from "react-native"
 import { TabStaff } from "../../components/score/TabStaff"
 import { EditorToolbar } from "../../components/score/EditorToolbar"
-import { StaffNotation, BEAT_WIDTH, LEFT_MARGIN } from "../../components/score/StaffNotation"
+import { StaffNotation, BEAT_WIDTH, LEFT_MARGIN, staffPositionToPitch } from "../../components/score/StaffNotation"
 import { StaffToolbar } from "../../components/score/StaffToolbar"
 import { ChordScaleModal } from "../../components/score/ChordScaleModal"
 import { Measure, Note, TabNote, Score as ScoreType } from "../../models/Score"
@@ -43,6 +43,7 @@ function StaffNotationView({ onBack, initialScore, scoreId }: { onBack: () => vo
     const [currentOctave, setCurrentOctave] = useState(4)
     const [currentDuration, setCurrentDuration] = useState(1)
     const [currentAccidental, setCurrentAccidental] = useState("")
+    const [selectedStaffPos, setSelectedStaffPos] = useState(0)
     const [chordModalVisible, setChordModalVisible] = useState(false)
 
     const { playbackState, currentPosition, play, pause, stop, togglePlayPause } = useScorePlayer(score)
@@ -205,10 +206,41 @@ function StaffNotationView({ onBack, initialScore, scoreId }: { onBack: () => vo
         })
     }, [beatsPerMeasure, score.measures])
 
+    useEffect(() => {
+        const handleKeyDown = (e: KeyboardEvent) => {
+            if (e.key === "ArrowLeft") {
+                e.preventDefault()
+                handleMoveLeft()
+            } else if (e.key === "ArrowRight") {
+                e.preventDefault()
+                handleMoveRight()
+            } else if (e.key === "ArrowUp") {
+                e.preventDefault()
+                setSelectedStaffPos(prev => Math.min(prev + 1, 16))
+            } else if (e.key === "ArrowDown") {
+                e.preventDefault()
+                setSelectedStaffPos(prev => Math.max(prev - 1, -8))
+            } else if (e.key === "Enter") {
+                e.preventDefault()
+                const pitch = staffPositionToPitch(selectedStaffPos, currentAccidental)
+                handleNoteInput(pitch, currentDuration)
+            } else if (e.key === "Delete" || e.key === "Backspace") {
+                e.preventDefault()
+                handleDelete()
+            } else if (e.key === " ") {
+                e.preventDefault()
+                togglePlayPause()
+            }
+        }
+        window.addEventListener("keydown", handleKeyDown)
+        return () => window.removeEventListener("keydown", handleKeyDown)
+    }, [handleMoveLeft, handleMoveRight, handleDelete, togglePlayPause, handleNoteInput, selectedStaffPos, currentAccidental, currentDuration])
+
     const accidentalLabel = currentAccidental === "#" ? "♯" : currentAccidental === "b" ? "♭" : ""
+    const currentPitchLabel = staffPositionToPitch(selectedStaffPos, currentAccidental)
     const selectedInfo = selectedNote
-        ? `小节 ${selectedNote.measureIndex + 1} | 拍 ${selectedNote.beat + 1} | 八度 ${currentOctave} | 时值 ${currentDuration}${accidentalLabel ? ` | ${accidentalLabel}` : ""}`
-        : "点击五线谱选择位置"
+        ? `小节 ${selectedNote.measureIndex + 1} | 拍 ${selectedNote.beat + 1} | 音高 ${currentPitchLabel} | 时值 ${currentDuration}${accidentalLabel ? ` | ${accidentalLabel}` : ""}`
+        : "点击五线谱选择位置，用 ↑↓ 调整音高，Enter 添加音符"
 
     // 每个小节的动态起始 X（与 StaffNotation 内部 measureLayout 保持一致）
     const measureStartXs = useMemo(() => {
@@ -300,6 +332,7 @@ function StaffNotationView({ onBack, initialScore, scoreId }: { onBack: () => vo
                         selectedNote={selectedNote}
                         onNoteSelect={handleNoteSelect}
                         height={canvasHeight}
+                        selectedStaffPos={selectedStaffPos}
                     />
                     {currentPosition && canvasHeight > 0 && (() => {
                         const measureX = measureStartXs[currentPosition.measureIndex] ?? LEFT_MARGIN
@@ -523,6 +556,29 @@ function TabNotationEditor({ onBack, initialScore, scoreId }: { onBack: () => vo
             return prev
         })
     }, [])
+
+    useEffect(() => {
+        const handleKeyDown = (e: KeyboardEvent) => {
+            if (e.key === "ArrowLeft") {
+                e.preventDefault()
+                handleMoveLeft()
+            } else if (e.key === "ArrowRight") {
+                e.preventDefault()
+                handleMoveRight()
+            } else if (e.key === "ArrowUp") {
+                e.preventDefault()
+                handleMoveUp()
+            } else if (e.key === "ArrowDown") {
+                e.preventDefault()
+                handleMoveDown()
+            } else if (e.key === "Delete" || e.key === "Backspace") {
+                e.preventDefault()
+                handleDelete()
+            }
+        }
+        window.addEventListener("keydown", handleKeyDown)
+        return () => window.removeEventListener("keydown", handleKeyDown)
+    }, [handleMoveLeft, handleMoveRight, handleMoveUp, handleMoveDown, handleDelete])
 
     const selectedInfo = selectedCell
         ? `小节 ${selectedCell.measureIndex + 1} | 拍 ${selectedCell.beat + 1} | 弦 ${selectedCell.string}`
