@@ -64,17 +64,23 @@ export function TabStaff({
     const beatsPerMeasure = timeSignature.beats
 
     // 计算每个小节的起始 X 坐标
+    // 宽度规则：空小节=1拍；每加一个音符展开到"最大拍位+2"列；满拍时固定为 beatsPerMeasure 列
     const measureLayout = useMemo(() => {
         let x = LEFT_MARGIN
         return measures.map((m) => {
             const startX = x
-            const width = beatsPerMeasure * BEAT_WIDTH
+            const tabNotes = m.tabNotes || []
+            const maxBeat = tabNotes.length > 0 ? Math.max(...tabNotes.map(n => n.beat)) : -1
+            const usedBeats = new Set(tabNotes.map(n => n.beat)).size
+            const isFull = usedBeats >= beatsPerMeasure
+            const beatSpan = isFull ? beatsPerMeasure : Math.max(1, maxBeat + 2)
+            const width = beatSpan * BEAT_WIDTH
             x += width
-            return { startX, width, measure: m }
+            return { startX, width, beatSpan, maxBeat, measure: m }
         })
     }, [measures, beatsPerMeasure])
 
-    const totalWidth = LEFT_MARGIN + measures.length * beatsPerMeasure * BEAT_WIDTH + RIGHT_MARGIN
+    const totalWidth = measureLayout.reduce((sum, l) => sum + l.width, LEFT_MARGIN) + RIGHT_MARGIN
     const staffHeight = (STRING_COUNT - 1) * LINE_SPACING
     const totalHeight = TOP_MARGIN + staffHeight + BOTTOM_MARGIN
 
@@ -100,7 +106,7 @@ export function TabStaff({
                 // 找到对应的拍
                 const relX = locationX - layout.startX
                 const beat = Math.floor(relX / BEAT_WIDTH)
-                if (beat < 0 || beat >= beatsPerMeasure) return
+                if (beat < 0 || beat >= layout.beatSpan) return
 
                 // 找到对应的弦
                 const relY = locationY - TOP_MARGIN + LINE_SPACING / 2
@@ -116,7 +122,7 @@ export function TabStaff({
                 return
             }
         }
-    }, [measureLayout, onCellSelect, beatsPerMeasure])
+    }, [measureLayout, onCellSelect])
 
     if (!font || !labelFont) return null
 

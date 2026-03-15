@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useRef, useEffect } from "react"
+import React, { useState, useCallback, useRef, useEffect, useMemo } from "react"
 import { View, ScrollView, StyleSheet, Text, TouchableOpacity, Alert, ActivityIndicator, FlatList, LayoutChangeEvent } from "react-native"
 import { TabStaff } from "../../components/score/TabStaff"
 import { EditorToolbar } from "../../components/score/EditorToolbar"
@@ -112,20 +112,29 @@ function StaffNotationView({ onBack, initialScore, scoreId }: { onBack: () => vo
             return { ...prev, measures: newMeasures }
         })
 
-        // 自动前进到下一拍
+        // 自动前进：按音符时值前进，并判断小节是否已满
         setSelectedNote(prev => {
             if (!prev) return null
-            const nextBeat = prev.beat + 1
-            if (nextBeat < beatsPerMeasure) {
+            const currentMeasure = score.measures.find(m => m.index === prev.measureIndex)
+            // 排除当前拍位置上被替换的旧音符，计算其余音符总时值
+            const existingDuration = (currentMeasure?.notes || [])
+                .filter(n => n.start !== prev.beat)
+                .reduce((sum, n) => sum + n.duration, 0)
+            const newTotalDuration = existingDuration + duration
+            const nextBeat = prev.beat + duration
+
+            if (newTotalDuration < beatsPerMeasure && nextBeat < beatsPerMeasure) {
+                // 小节未满，在小节内前进
                 return { ...prev, beat: nextBeat }
             }
+            // 小节已满或超出，跳到下一小节
             const nextMeasureIdx = prev.measureIndex + 1
             if (nextMeasureIdx < score.measures.length) {
                 return { measureIndex: nextMeasureIdx, beat: 0 }
             }
             return prev
         })
-    }, [selectedNote, beatsPerMeasure, score.measures.length])
+    }, [selectedNote, beatsPerMeasure, score.measures])
 
     const handleDelete = useCallback(() => {
         if (!selectedNote) return
@@ -166,27 +175,49 @@ function StaffNotationView({ onBack, initialScore, scoreId }: { onBack: () => vo
     const handleMoveRight = useCallback(() => {
         setSelectedNote(prev => {
             if (!prev) return { measureIndex: 0, beat: 0 }
-            if (prev.beat < beatsPerMeasure - 1) return { ...prev, beat: prev.beat + 1 }
+            const currentMeasure = score.measures.find(m => m.index === prev.measureIndex)
+            const totalDuration = (currentMeasure?.notes || []).reduce((sum, n) => sum + n.duration, 0)
+            const measureFull = totalDuration >= beatsPerMeasure
+
+            // 小节未满：最后可见位置是 totalDuration（下一个空格子），从那里再移就跳小节
+            if (!measureFull && prev.beat + 1 <= totalDuration) {
+                return { ...prev, beat: prev.beat + 1 }
+            }
+            // 小节已满或已在最后可见格，跳到下一小节
             if (prev.measureIndex < score.measures.length - 1) {
                 return { measureIndex: prev.measureIndex + 1, beat: 0 }
             }
             return prev
         })
-    }, [beatsPerMeasure, score.measures.length])
+    }, [beatsPerMeasure, score.measures])
 
     const accidentalLabel = currentAccidental === "#" ? "♯" : currentAccidental === "b" ? "♭" : ""
     const selectedInfo = selectedNote
         ? `小节 ${selectedNote.measureIndex + 1} | 拍 ${selectedNote.beat + 1} | 八度 ${currentOctave} | 时值 ${currentDuration}${accidentalLabel ? ` | ${accidentalLabel}` : ""}`
         : "点击五线谱选择位置"
 
+    // 每个小节的动态起始 X（与 StaffNotation 内部 measureLayout 保持一致）
+    const measureStartXs = useMemo(() => {
+        const result: number[] = []
+        let x = LEFT_MARGIN
+        for (const m of score.measures) {
+            result.push(x)
+            const totalDuration = (m.notes || []).reduce((sum, n) => sum + n.duration, 0)
+            const isFull = totalDuration >= beatsPerMeasure
+            const beatSpan = isFull ? beatsPerMeasure : Math.max(1, totalDuration + 1)
+            x += beatSpan * BEAT_WIDTH
+        }
+        return result
+    }, [score.measures, beatsPerMeasure])
+
     // 播放时自动滚动到当前位置
-    const beatsPerMeasureForScroll = score.timeSignature.beats
     useEffect(() => {
         if (currentPosition && scrollViewRef.current) {
-            const x = LEFT_MARGIN + currentPosition.measureIndex * beatsPerMeasureForScroll * BEAT_WIDTH + currentPosition.beat * BEAT_WIDTH
+            const measureX = measureStartXs[currentPosition.measureIndex] ?? LEFT_MARGIN
+            const x = measureX + currentPosition.beat * BEAT_WIDTH
             scrollViewRef.current.scrollTo({ x: Math.max(0, x - 150), animated: true })
         }
-    }, [currentPosition, beatsPerMeasureForScroll])
+    }, [currentPosition, measureStartXs])
 
     return (
         <View style={styles.container}>
@@ -244,22 +275,26 @@ function StaffNotationView({ onBack, initialScore, scoreId }: { onBack: () => vo
                         onNoteSelect={handleNoteSelect}
                         height={canvasHeight}
                     />
-                    {currentPosition && canvasHeight > 0 && (
-                        <View
-                            pointerEvents="none"
-                            style={{
-                                position: "absolute",
-                                left: 0,
-                                top: 0,
-                                width: BEAT_WIDTH - 8,
-                                height: canvasHeight,
-                                backgroundColor: "rgba(34, 197, 94, 0.25)",
-                                borderWidth: 1.5,
-                                borderColor: "rgba(34, 197, 94, 0.8)",
-                                transform: [{ translateX: LEFT_MARGIN + currentPosition.measureIndex * beatsPerMeasure * BEAT_WIDTH + currentPosition.beat * BEAT_WIDTH - BEAT_WIDTH / 2 + 4 }],
-                            }}
-                        />
-                    )}
+                    {currentPosition && canvasHeight > 0 && (() => {
+                        const measureX = measureStartXs[currentPosition.measureIndex] ?? LEFT_MARGIN
+                        const playbackX = measureX + currentPosition.beat * BEAT_WIDTH
+                        return (
+                            <View
+                                pointerEvents="none"
+                                style={{
+                                    position: "absolute",
+                                    left: 0,
+                                    top: 0,
+                                    width: BEAT_WIDTH - 8,
+                                    height: canvasHeight,
+                                    backgroundColor: "rgba(34, 197, 94, 0.25)",
+                                    borderWidth: 1.5,
+                                    borderColor: "rgba(34, 197, 94, 0.8)",
+                                    transform: [{ translateX: playbackX - BEAT_WIDTH / 2 + 4 }],
+                                }}
+                            />
+                        )
+                    })()}
                 </View>
             </ScrollView>
             <StaffToolbar
@@ -350,17 +385,24 @@ function TabNotationEditor({ onBack, initialScore, scoreId }: { onBack: () => vo
 
         setSelectedCell(prev => {
             if (!prev) return null
+            const currentMeasure = score.measures.find(m => m.index === prev.measureIndex)
+            // 计算已使用的不重复拍数（同一拍多根弦只算一拍）
+            const usedBeats = new Set((currentMeasure?.tabNotes || []).map(n => n.beat)).size
+            const measureFull = usedBeats >= beatsPerMeasure
             const nextBeat = prev.beat + 1
-            if (nextBeat < beatsPerMeasure) {
+
+            if (!measureFull && nextBeat < beatsPerMeasure) {
+                // 小节未满，在小节内前进一格
                 return { ...prev, beat: nextBeat }
             }
+            // 小节已满，跳到下一小节
             const nextMeasureIdx = prev.measureIndex + 1
             if (nextMeasureIdx < score.measures.length) {
                 return { measureIndex: nextMeasureIdx, beat: 0, string: prev.string }
             }
             return prev
         })
-    }, [selectedCell, beatsPerMeasure, score.measures.length])
+    }, [selectedCell, beatsPerMeasure, score.measures])
 
     const handleDelete = useCallback(() => {
         if (!selectedCell) return
@@ -403,13 +445,23 @@ function TabNotationEditor({ onBack, initialScore, scoreId }: { onBack: () => vo
     const handleMoveRight = useCallback(() => {
         setSelectedCell(prev => {
             if (!prev) return { measureIndex: 0, beat: 0, string: 1 }
-            if (prev.beat < beatsPerMeasure - 1) return { ...prev, beat: prev.beat + 1 }
+            const currentMeasure = score.measures.find(m => m.index === prev.measureIndex)
+            const tabNotes = currentMeasure?.tabNotes || []
+            const maxBeat = tabNotes.length > 0 ? Math.max(...tabNotes.map(n => n.beat)) : -1
+            const usedBeats = new Set(tabNotes.map(n => n.beat)).size
+            const measureFull = usedBeats >= beatsPerMeasure
+
+            // 小节未满：最后可见位置是 maxBeat+1（下一个空格子），从那里再移就跳小节
+            if (!measureFull && prev.beat <= maxBeat) {
+                return { ...prev, beat: prev.beat + 1 }
+            }
+            // 小节已满或已在最后可见格，跳到下一小节
             if (prev.measureIndex < score.measures.length - 1) {
                 return { ...prev, measureIndex: prev.measureIndex + 1, beat: 0 }
             }
             return prev
         })
-    }, [beatsPerMeasure, score.measures.length])
+    }, [beatsPerMeasure, score.measures])
 
     const handleMoveUp = useCallback(() => {
         setSelectedCell(prev => {

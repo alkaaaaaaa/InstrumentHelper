@@ -158,17 +158,21 @@ function StaffNotationComponent({
     const beatsPerMeasure = timeSignature.beats
 
     // 计算每个小节的起始 X 坐标
+    // 宽度规则：空小节=1拍；每加一个音符展开到"已用时值+1"列；满拍时固定为 beatsPerMeasure 列
     const measureLayout = useMemo(() => {
         let x = LEFT_MARGIN
         return measures.map((m) => {
             const startX = x
-            const width = beatsPerMeasure * BEAT_WIDTH
+            const totalDuration = (m.notes || []).reduce((sum, n) => sum + n.duration, 0)
+            const isFull = totalDuration >= beatsPerMeasure
+            const beatSpan = isFull ? beatsPerMeasure : Math.max(1, totalDuration + 1)
+            const width = beatSpan * BEAT_WIDTH
             x += width
-            return { startX, width, measure: m }
+            return { startX, width, beatSpan, measure: m }
         })
     }, [measures, beatsPerMeasure])
 
-    const totalWidth = LEFT_MARGIN + measures.length * beatsPerMeasure * BEAT_WIDTH + RIGHT_MARGIN
+    const totalWidth = measureLayout.reduce((sum, l) => sum + l.width, LEFT_MARGIN) + RIGHT_MARGIN
     const staffHeight = (STAFF_LINE_COUNT - 1) * LINE_SPACING
     const totalHeight = height
 
@@ -207,7 +211,7 @@ function StaffNotationComponent({
             if (locationX >= layout.startX && locationX < mEndX) {
                 const relX = locationX - layout.startX
                 const beat = Math.floor(relX / BEAT_WIDTH)
-                if (beat < 0 || beat >= beatsPerMeasure) return
+                if (beat < 0 || beat >= layout.beatSpan) return
 
                 onNoteSelect({
                     measureIndex: layout.measure.index,
@@ -216,7 +220,7 @@ function StaffNotationComponent({
                 return
             }
         }
-    }, [measureLayout, onNoteSelect, beatsPerMeasure])
+    }, [measureLayout, onNoteSelect])
 
     if (height === 0) return null
 
