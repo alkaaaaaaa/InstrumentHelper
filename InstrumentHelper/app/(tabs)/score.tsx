@@ -166,21 +166,31 @@ function StaffNotationView({ onBack, initialScore, scoreId }: { onBack: () => vo
             if (!prev) return { measureIndex: 0, beat: 0 }
             if (prev.beat > 0) return { ...prev, beat: prev.beat - 1 }
             if (prev.measureIndex > 0) {
-                return { measureIndex: prev.measureIndex - 1, beat: beatsPerMeasure - 1 }
+                const prevMeasure = score.measures.find(m => m.index === prev.measureIndex - 1)
+                const prevNotes = prevMeasure?.notes || []
+                const prevMaxNoteEnd = prevNotes.length > 0
+                    ? Math.max(...prevNotes.map(n => n.start + n.duration))
+                    : 0
+                // 跳到前一小节的实际光标位置，不超出其可见范围
+                const targetBeat = Math.min(prevMaxNoteEnd, beatsPerMeasure - 1)
+                return { measureIndex: prev.measureIndex - 1, beat: targetBeat }
             }
             return prev
         })
-    }, [beatsPerMeasure])
+    }, [beatsPerMeasure, score.measures])
 
     const handleMoveRight = useCallback(() => {
         setSelectedNote(prev => {
             if (!prev) return { measureIndex: 0, beat: 0 }
             const currentMeasure = score.measures.find(m => m.index === prev.measureIndex)
-            const totalDuration = (currentMeasure?.notes || []).reduce((sum, n) => sum + n.duration, 0)
-            const measureFull = totalDuration >= beatsPerMeasure
+            const notes = currentMeasure?.notes || []
+            const maxNoteEnd = notes.length > 0
+                ? Math.max(...notes.map(n => n.start + n.duration))
+                : 0
+            const measureFull = maxNoteEnd >= beatsPerMeasure
 
-            // 小节未满：最后可见位置是 totalDuration（下一个空格子），从那里再移就跳小节
-            if (!measureFull && prev.beat + 1 <= totalDuration) {
+            // 小节未满：最后可见位置是 maxNoteEnd（最后音符结束处），从那里再移就跳小节
+            if (!measureFull && prev.beat + 1 <= maxNoteEnd) {
                 return { ...prev, beat: prev.beat + 1 }
             }
             // 小节已满或已在最后可见格，跳到下一小节
@@ -202,9 +212,15 @@ function StaffNotationView({ onBack, initialScore, scoreId }: { onBack: () => vo
         let x = LEFT_MARGIN
         for (const m of score.measures) {
             result.push(x)
-            const totalDuration = (m.notes || []).reduce((sum, n) => sum + n.duration, 0)
-            const isFull = totalDuration >= beatsPerMeasure
-            const beatSpan = isFull ? beatsPerMeasure : Math.max(1, totalDuration + 1)
+            const notes = m.notes || []
+            const maxNoteEnd = notes.length > 0
+                ? Math.max(...notes.map(n => n.start + n.duration))
+                : 0
+            const maxLastNoteStart = notes.length > 0
+                ? Math.max(...notes.map(n => n.start))
+                : 0
+            const isFull = maxNoteEnd >= beatsPerMeasure
+            const beatSpan = Math.max(1, Math.ceil(maxLastNoteStart) + 1)
             x += beatSpan * BEAT_WIDTH
         }
         return result
@@ -436,11 +452,22 @@ function TabNotationEditor({ onBack, initialScore, scoreId }: { onBack: () => vo
             if (!prev) return { measureIndex: 0, beat: 0, string: 1 }
             if (prev.beat > 0) return { ...prev, beat: prev.beat - 1 }
             if (prev.measureIndex > 0) {
-                return { ...prev, measureIndex: prev.measureIndex - 1, beat: beatsPerMeasure - 1 }
+                const prevMeasure = score.measures.find(m => m.index === prev.measureIndex - 1)
+                const prevTabNotes = prevMeasure?.tabNotes || []
+                const prevMaxBeat = prevTabNotes.length > 0
+                    ? Math.max(...prevTabNotes.map(n => n.beat))
+                    : -1
+                const prevUsedBeats = new Set(prevTabNotes.map(n => n.beat)).size
+                const prevIsFull = prevUsedBeats >= beatsPerMeasure
+                // 跳到前一小节的实际光标位置，不超出其可见范围
+                const targetBeat = prevIsFull
+                    ? beatsPerMeasure - 1
+                    : Math.min(prevMaxBeat + 1, beatsPerMeasure - 1)
+                return { ...prev, measureIndex: prev.measureIndex - 1, beat: targetBeat }
             }
             return prev
         })
-    }, [beatsPerMeasure])
+    }, [beatsPerMeasure, score.measures])
 
     const handleMoveRight = useCallback(() => {
         setSelectedCell(prev => {

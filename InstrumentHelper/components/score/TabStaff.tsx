@@ -9,7 +9,7 @@ import {
     Group,
     useFont,
 } from "@shopify/react-native-skia"
-import { Pressable } from "react-native"
+import { Pressable, View } from "react-native"
 import { Measure, TabNote, TimeSignature } from "../../models/Score"
 
 // ─── 布局常量 ───
@@ -73,7 +73,8 @@ export function TabStaff({
             const maxBeat = tabNotes.length > 0 ? Math.max(...tabNotes.map(n => n.beat)) : -1
             const usedBeats = new Set(tabNotes.map(n => n.beat)).size
             const isFull = usedBeats >= beatsPerMeasure
-            const beatSpan = isFull ? beatsPerMeasure : Math.max(1, maxBeat + 2)
+            // 宽度刚好覆盖已有音符（maxBeat+1 列），光标用边缘指示线表示，不超过 beatsPerMeasure
+            const beatSpan = isFull ? beatsPerMeasure : Math.max(1, Math.min(maxBeat + 1, beatsPerMeasure))
             const width = beatSpan * BEAT_WIDTH
             x += width
             return { startX, width, beatSpan, maxBeat, measure: m }
@@ -127,7 +128,8 @@ export function TabStaff({
     if (!font || !labelFont) return null
 
     return (
-        <Pressable onPress={handlePress}>
+        <View style={{ width: totalWidth, height: totalHeight }}>
+        <Pressable onPress={handlePress} style={{ width: totalWidth, height: totalHeight }}>
             <Canvas style={{ width: totalWidth, height: totalHeight }}>
                 {/* ─── 左侧弦号标签 ─── */}
                 {STRING_LABELS.map((label, i) => (
@@ -181,8 +183,24 @@ export function TabStaff({
                 {selectedCell && (() => {
                     const layout = measureLayout.find(l => l.measure.index === selectedCell.measureIndex)
                     if (!layout) return null
-                    const cx = beatX(layout.startX, selectedCell.beat)
+                    const beat = selectedCell.beat
                     const cy = stringY(selectedCell.string)
+
+                    if (beat >= layout.beatSpan) {
+                        // 光标在小节边界：细蓝竖线，表示下一个音符将在此扩展小节
+                        const edgeX = layout.startX + layout.width
+                        return (
+                            <Rect
+                                x={edgeX - 2}
+                                y={stringY(1) - LINE_SPACING / 2}
+                                width={4}
+                                height={(STRING_COUNT - 1) * LINE_SPACING + LINE_SPACING}
+                                color={CURSOR_BORDER_COLOR}
+                            />
+                        )
+                    }
+
+                    const cx = beatX(layout.startX, beat)
                     return (
                         <Group>
                             <RoundedRect
@@ -240,5 +258,6 @@ export function TabStaff({
                 })}
             </Canvas>
         </Pressable>
+        </View>
     )
 }

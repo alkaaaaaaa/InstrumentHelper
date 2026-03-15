@@ -158,14 +158,25 @@ function StaffNotationComponent({
     const beatsPerMeasure = timeSignature.beats
 
     // 计算每个小节的起始 X 坐标
-    // 宽度规则：空小节=1拍；每加一个音符展开到"已用时值+1"列；满拍时固定为 beatsPerMeasure 列
+    // 宽度规则：以所有音符的最大结束拍位（start+duration）决定小节宽度，
+    // 确保任何音符都不会超出分割线；满拍时固定为 beatsPerMeasure 列
     const measureLayout = useMemo(() => {
         let x = LEFT_MARGIN
         return measures.map((m) => {
             const startX = x
-            const totalDuration = (m.notes || []).reduce((sum, n) => sum + n.duration, 0)
-            const isFull = totalDuration >= beatsPerMeasure
-            const beatSpan = isFull ? beatsPerMeasure : Math.max(1, totalDuration + 1)
+            const notes = m.notes || []
+            // 最后一个音符的起始拍位，决定小节视觉宽度
+            // 用 ceil(maxLastNoteStart) + 1 确保每个音符的视觉中心（start+0.5列）都在分割线左侧
+            const maxNoteEnd = notes.length > 0
+                ? Math.max(...notes.map(n => n.start + n.duration))
+                : 0
+            const maxLastNoteStart = notes.length > 0
+                ? Math.max(...notes.map(n => n.start))
+                : 0
+            const isFull = maxNoteEnd >= beatsPerMeasure
+            // 统一用 ceil(最后音符起始拍)+1，保证所有音符中心都在分割线左侧
+            // 四分音符填满时刚好等于 beatsPerMeasure；更短音符填满时可能略宽，但不会压线
+            const beatSpan = Math.max(1, Math.ceil(maxLastNoteStart) + 1)
             const width = beatSpan * BEAT_WIDTH
             x += width
             return { startX, width, beatSpan, measure: m }
@@ -225,8 +236,8 @@ function StaffNotationComponent({
     if (height === 0) return null
 
     return (
-        <View style={{ flex: 1 }}>
-            <Pressable onPress={handlePress}>
+        <View style={{ width: totalWidth }}>
+            <Pressable onPress={handlePress} style={{ width: totalWidth, height: totalHeight }}>
                 <Canvas style={{ width: totalWidth, height: totalHeight }}>
                 {/* ─── 高音谱号标记 ─── */}
                 {clefFont && (
@@ -299,27 +310,44 @@ function StaffNotationComponent({
                 {selectedNote && (() => {
                     const layout = measureLayout.find(l => l.measure.index === selectedNote.measureIndex)
                     if (!layout) return null
-                    const cx = beatX(layout.startX, selectedNote.beat)
-                    return (
-                        <Group>
+                    const beat = selectedNote.beat
+                    // beat+0.5 < beatSpan 表示光标中心在分割线左侧，可正常显示
+                    if (beat + 0.5 < layout.beatSpan) {
+                        // 光标在小节内：正常高亮格
+                        const cx = beatX(layout.startX, beat)
+                        return (
+                            <Group>
+                                <Rect
+                                    x={cx - BEAT_WIDTH / 2 + 4}
+                                    y={staffLineY(5) - 10}
+                                    width={BEAT_WIDTH - 8}
+                                    height={staffHeight + 20}
+                                    color={SELECTED_COLOR}
+                                />
+                                <Rect
+                                    x={cx - BEAT_WIDTH / 2 + 4}
+                                    y={staffLineY(5) - 10}
+                                    width={BEAT_WIDTH - 8}
+                                    height={staffHeight + 20}
+                                    color={SELECTED_BORDER}
+                                    style="stroke"
+                                    strokeWidth={1.5}
+                                />
+                            </Group>
+                        )
+                    } else {
+                        // 光标在小节边界：细蓝竖线，表示下一个音符将在此扩展小节
+                        const edgeX = layout.startX + layout.width
+                        return (
                             <Rect
-                                x={cx - BEAT_WIDTH / 2 + 4}
+                                x={edgeX - 2}
                                 y={staffLineY(5) - 10}
-                                width={BEAT_WIDTH - 8}
-                                height={staffHeight + 20}
-                                color={SELECTED_COLOR}
-                            />
-                            <Rect
-                                x={cx - BEAT_WIDTH / 2 + 4}
-                                y={staffLineY(5) - 10}
-                                width={BEAT_WIDTH - 8}
+                                width={4}
                                 height={staffHeight + 20}
                                 color={SELECTED_BORDER}
-                                style="stroke"
-                                strokeWidth={1.5}
                             />
-                        </Group>
-                    )
+                        )
+                    }
                 })()}
 
                 {/* ─── 音符渲染 ─── */}
