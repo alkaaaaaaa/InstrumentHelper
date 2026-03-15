@@ -1,11 +1,10 @@
-import React, { useCallback, useMemo, memo } from "react"
+import React, { useCallback, useMemo, useRef, memo } from "react"
 import {
     Canvas,
     Line,
     Text as SkiaText,
     Oval,
     Rect,
-    RoundedRect,
     Group,
     Path,
     useFont,
@@ -20,6 +19,7 @@ const HALF_STEP = 8              // 半个线间距（相邻音高之间的距�
 const LINE_SPACING = HALF_STEP * 2  // 线间距
 export const BEAT_WIDTH = 70      // 每拍宽度
 export const LEFT_MARGIN = 60     // 左侧留白（放谱号）
+export const STAFF_LINE_SPACING = 16  // LINE_SPACING，供外部计算标注 Y 位置
 const RIGHT_MARGIN = 20
 const LABEL_BOTTOM_PADDING = 12   // 音名标注距 Canvas 底部的距离
 const NOTE_HEAD_RX = 7            // 符头水平半径
@@ -163,7 +163,6 @@ type Props = {
     onNoteSelect?: (note: SelectedNote) => void
     height: number
     selectedStaffPos?: number
-    chordAnnotations?: ChordAnnotation[]
 }
 
 function StaffNotationComponent({
@@ -173,11 +172,9 @@ function StaffNotationComponent({
     onNoteSelect,
     height,
     selectedStaffPos,
-    chordAnnotations,
 }: Props) {
     const font = useFont(fontFile, NOTE_FONT_SIZE)
     const clefFont = useFont(fontFile, CLEF_FONT_SIZE)
-    const chordFont = useFont(fontFile, 11)
 
     const beatsPerMeasure = timeSignature.beats
 
@@ -198,7 +195,9 @@ function StaffNotationComponent({
     }, [measures, beatsPerMeasure])
 
     // 视觉布局：含光标扩展，用于绘制小节线 / 音符 / 幽灵音符（不影响画布宽度）
-    const measureLayout = useMemo(() => {
+    // ⚠️ 故意不用 useMemo：每次渲染都返回新引用，确保 Skia canvas 总是重绘
+    // （若用 useMemo，chordAnnotations 等其他 prop 变化触发重渲染时 Skia 会因引用未变而跳过重绘）
+    const measureLayout = (() => {
         let x = LEFT_MARGIN
         return measures.map((m) => {
             const startX = x
@@ -215,7 +214,17 @@ function StaffNotationComponent({
             x += width
             return { startX, width, beatSpan, measure: m }
         })
-    }, [measures, beatsPerMeasure, selectedNote])
+    })()
+
+    // handlePress 通过 ref 读取最新 measureLayout，避免把它放入 useCallback 依赖
+    const measureLayoutRef = useRef(measureLayout)
+    measureLayoutRef.current = measureLayout
+
+    // 渲染计数器：每次 StaffNotationComponent 重渲染都递增，
+    // 用于 Canvas 顶层 Group 的 key，强制 Skia 完整重绘，
+    // 防止 canvas 被清空后因子节点 props 未变而跳过重画导致音符消失
+    const renderTickRef = useRef(0)
+    renderTickRef.current += 1
 
     // 画布宽度由稳定布局决定 + beatsPerMeasure 的余量（足以容纳任何光标位置的扩展）
     const totalWidth = stableMeasureLayout.reduce((sum, l) => sum + l.width, LEFT_MARGIN)
@@ -254,7 +263,7 @@ function StaffNotationComponent({
         const locationX: number | undefined = evt?.nativeEvent?.locationX
         if (locationX == null) return
 
-        for (const layout of measureLayout) {
+        for (const layout of measureLayoutRef.current) {
             const mEndX = layout.startX + layout.width
             if (locationX >= layout.startX && locationX < mEndX) {
                 const relX = locationX - layout.startX
@@ -270,7 +279,7 @@ function StaffNotationComponent({
                 return
             }
         }
-    }, [measureLayout, onNoteSelect])
+    }, [onNoteSelect])
 
     if (height === 0) return null
 
@@ -278,6 +287,8 @@ function StaffNotationComponent({
         <View style={{ width: totalWidth }}>
             <Pressable onPress={handlePress} style={{ width: totalWidth, height: totalHeight }}>
                 <Canvas style={{ width: totalWidth, height: totalHeight }}>
+                {/* key 随每次渲染递增，强制 Skia 销毁并重建所有子节点，保证完整重绘 */}
+                <Group key={renderTickRef.current}>
                 {/* ─── 高音谱号标记 ─── */}
                 {clefFont && (
                     <SkiaText
@@ -510,33 +521,7 @@ function StaffNotationComponent({
                         )
                     })
                 })}
-                {/* ─── 和弦标注（分析按钮触发后显示在对应拍上方） ─── */}
-                {chordAnnotations && chordFont && chordAnnotations.map((ann) => {
-                    const layout = measureLayout.find(l => l.measure.index === ann.measureIndex)
-                    if (!layout) return null
-                    const cx = beatX(layout.startX, ann.beat)
-                    const labelY = staffLineY(5) - 4
-                    const labelW = Math.min(ann.label.length * 6.5 + 10, 72)
-                    return (
-                        <Group key={`chord-${ann.measureIndex}-${ann.beat}`}>
-                            <RoundedRect
-                                x={cx - labelW / 2}
-                                y={labelY - 13}
-                                width={labelW}
-                                height={15}
-                                r={3}
-                                color="rgba(99, 102, 241, 0.18)"
-                            />
-                            <SkiaText
-                                x={cx - labelW / 2 + 4}
-                                y={labelY}
-                                text={ann.label}
-                                font={chordFont}
-                                color="#6366f1"
-                            />
-                        </Group>
-                    )
-                })}
+                </Group>
                 </Canvas>
             </Pressable>
         </View>
