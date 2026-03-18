@@ -10,6 +10,7 @@ export type TabNote = {  // 六线谱上的音符
     string: number       // 弦号 1-6
     fret: number         // 品位 0-24
     beat: number         // 在小节中的拍位置（0-based）
+    duration?: number    // 音长（拍），可选，默认按 1 拍处理
 }
 
 export type TimeSignature = {

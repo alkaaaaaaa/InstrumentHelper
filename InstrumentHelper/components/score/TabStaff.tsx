@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo } from "react"
+import React, { useCallback, useMemo, useRef } from "react"
 import {
     Canvas,
     Line,
@@ -7,6 +7,7 @@ import {
     vec,
     Rect,
     Group,
+    Path,
     useFont,
 } from "@shopify/react-native-skia"
 import { Pressable, View } from "react-native"
@@ -22,6 +23,7 @@ const TOP_MARGIN = 30
 const BOTTOM_MARGIN = 16
 const BARLINE_EXTEND = 0          // 小节线上下延伸
 const NOTE_FONT_SIZE = 16
+const STEM_LENGTH = 26         // 品位数字下方的“音符杆”长度
 const LABEL_FONT_SIZE = 12
 const CURSOR_COLOR = "rgba(59, 130, 246, 0.3)"   // 选中格高亮
 const CURSOR_BORDER_COLOR = "rgba(59, 130, 246, 0.8)"
@@ -63,25 +65,68 @@ export function TabStaff({
 
     const beatsPerMeasure = timeSignature.beats
 
-    // 计算每个小节的起始 X 坐标
-    // 宽度规则：空小节=1拍；每加一个音符展开到"最大拍位+2"列；满拍时固定为 beatsPerMeasure 列
-    const measureLayout = useMemo(() => {
+    // 时值到六线谱符号外观的映射
+    // 参考示例：全音无杆；二分/四分为直杆；八分/十六在底部加 1/2 个“勾”
+    const getTabNoteAppearance = useCallback((duration: number) => {
+        if (duration >= 4) {
+            return { showStem: false, flags: 0, stemLength: 0 }
+        }
+        if (duration >= 2) {
+            return { showStem: true, flags: 0, stemLength: STEM_LENGTH * 1.4 }
+        }
+        if (duration >= 1) {
+            return { showStem: true, flags: 0, stemLength: STEM_LENGTH }
+        }
+        if (duration >= 0.5) {
+            return { showStem: true, flags: 1, stemLength: STEM_LENGTH }
+        }
+        return { showStem: true, flags: 2, stemLength: STEM_LENGTH }
+    }, [])
+
+    // 稳定布局：仅由已有音符决定宽度，用于计算画布总宽，防止光标移动时整体宽度抖动
+    const stableMeasureLayout = useMemo(() => {
         let x = LEFT_MARGIN
         return measures.map((m) => {
             const startX = x
             const tabNotes = m.tabNotes || []
-            const maxBeat = tabNotes.length > 0 ? Math.max(...tabNotes.map(n => n.beat)) : -1
-            const usedBeats = new Set(tabNotes.map(n => n.beat)).size
-            const isFull = usedBeats >= beatsPerMeasure
-            // 宽度刚好覆盖已有音符（maxBeat+1 列），光标用边缘指示线表示，不超过 beatsPerMeasure
-            const beatSpan = isFull ? beatsPerMeasure : Math.max(1, Math.min(maxBeat + 1, beatsPerMeasure))
+            // 小节宽度至少覆盖到最右侧音符的结束位置，而不是只看拍号格数
+            const maxNoteEnd = tabNotes.length > 0
+                ? Math.max(...tabNotes.map(n => n.beat + (n.duration ?? 1)))
+                : 0
+            const beatSpan = Math.max(1, Math.ceil(maxNoteEnd))
             const width = beatSpan * BEAT_WIDTH
             x += width
-            return { startX, width, beatSpan, maxBeat, measure: m }
+            return { startX, width, beatSpan, measure: m }
         })
-    }, [measures, beatsPerMeasure])
+    }, [measures])
 
-    const totalWidth = measureLayout.reduce((sum, l) => sum + l.width, LEFT_MARGIN) + RIGHT_MARGIN
+    // 视觉布局：在稳定布局基础上，根据当前选中格子向右扩展小节空间（类似五线谱）
+    const measureLayout = (() => {
+        let x = LEFT_MARGIN
+        return measures.map((m) => {
+            const stable = stableMeasureLayout.find(l => l.measure.index === m.index)
+            const tabNotes = m.tabNotes || []
+            const maxNoteEnd = tabNotes.length > 0
+                ? Math.max(...tabNotes.map(n => n.beat + (n.duration ?? 1)))
+                : 0
+            let beatSpan = stable?.beatSpan ?? Math.max(1, Math.ceil(maxNoteEnd))
+
+            if (selectedCell && selectedCell.measureIndex === m.index) {
+                // 光标向右移动时继续扩展可见列数，确保当前编辑位置始终可见
+                const desiredBeatSpan = Math.max(beatSpan, selectedCell.beat + 1)
+                beatSpan = desiredBeatSpan
+            }
+
+            const startX = x
+            const width = beatSpan * BEAT_WIDTH
+            x += width
+            return { startX, width, beatSpan, measure: m }
+        })
+    })()
+
+    const stableWidth = stableMeasureLayout.reduce((sum, l) => sum + l.width, LEFT_MARGIN) + RIGHT_MARGIN
+    const visualWidth = measureLayout.reduce((sum, l) => sum + l.width, LEFT_MARGIN) + RIGHT_MARGIN
+    const totalWidth = Math.max(stableWidth, visualWidth)
     const staffHeight = (STRING_COUNT - 1) * LINE_SPACING
     const totalHeight = TOP_MARGIN + staffHeight + BOTTOM_MARGIN
 
@@ -186,21 +231,7 @@ export function TabStaff({
                     const beat = selectedCell.beat
                     const cy = stringY(selectedCell.string)
 
-                    if (beat >= layout.beatSpan) {
-                        // 光标在小节边界：细蓝竖线，表示下一个音符将在此扩展小节
-                        const edgeX = layout.startX + layout.width
-                        return (
-                            <Rect
-                                x={edgeX - 2}
-                                y={stringY(1) - LINE_SPACING / 2}
-                                width={4}
-                                height={(STRING_COUNT - 1) * LINE_SPACING + LINE_SPACING}
-                                color={CURSOR_BORDER_COLOR}
-                            />
-                        )
-                    }
-
-                    const cx = beatX(layout.startX, beat)
+                    const cx = beatX(layout.startX, Math.min(beat, layout.beatSpan - 1))
                     return (
                         <Group>
                             <RoundedRect
@@ -225,7 +256,7 @@ export function TabStaff({
                     )
                 })()}
 
-                {/* ─── 音符（品位数字） ─── */}
+                {/* ─── 音符（品位数字 + 下方“杆”表示时值） ─── */}
                 {measureLayout.map((layout) => {
                     const tabNotes = layout.measure.tabNotes || []
                     return tabNotes.map((note, ni) => {
@@ -234,6 +265,10 @@ export function TabStaff({
                         const text = note.fret.toString()
                         // 估算文本宽度：单个数字约 10px，两位数约 18px
                         const textWidth = text.length === 1 ? 10 : 18
+                        // 六线谱自身的时值（若未设置则默认 1 拍）
+                        const duration = note.duration ?? 1
+                        const appearance = getTabNoteAppearance(duration)
+
                         return (
                             <Group key={`note-${layout.measure.index}-${ni}`}>
                                 {/* 白色背景遮盖弦线 */}
@@ -252,6 +287,39 @@ export function TabStaff({
                                     font={font}
                                     color={NOTE_TEXT_COLOR}
                                 />
+                                {/* 下方“音符杆”和时值勾形 */}
+                                {appearance.showStem && (() => {
+                                    const stemTopY = cy + NOTE_FONT_SIZE / 2 + 2
+                                    const stemX = cx - 1
+                                    const stemHeight = appearance.stemLength
+                                    const stemBottomY = stemTopY + stemHeight
+                                    return (
+                                        <Group>
+                                            <Rect
+                                                x={stemX}
+                                                y={stemTopY}
+                                                width={2}
+                                                height={stemHeight}
+                                                color={NOTE_TEXT_COLOR}
+                                            />
+                                            {appearance.flags > 0 && Array.from({ length: appearance.flags }).map((_, fi) => {
+                                                const offset = fi * 6
+                                                const fy = stemBottomY + offset
+                                                // 小尾巴向上弯：控制点与终点的 y 坐标比起点更小
+                                                const pathStr = `M ${stemX} ${fy} Q ${stemX + 10} ${fy - 6} ${stemX + 4} ${fy - 12}`
+                                                return (
+                                                    <Path
+                                                        key={`tab-flag-${layout.measure.index}-${ni}-${fi}`}
+                                                        path={pathStr}
+                                                        color={NOTE_TEXT_COLOR}
+                                                        style="stroke"
+                                                        strokeWidth={1.5}
+                                                    />
+                                                )
+                                            })}
+                                        </Group>
+                                    )
+                                })()}
                             </Group>
                         )
                     })

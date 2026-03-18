@@ -24,6 +24,27 @@ type SelectedStaffNote = {
     beat: number
 }
 
+// 计算六线谱小节中已占用的总时值（按拍计）
+// 规则：同一拍多根弦只按该拍最大时值计算一次
+function getTabMeasureDuration(tabNotes: TabNote[] | undefined): number {
+    if (!tabNotes || tabNotes.length === 0) return 0
+    const beatMap = new Map<number, number>()
+    for (const n of tabNotes) {
+        const d = n.duration ?? 1
+        const prev = beatMap.get(n.beat) ?? 0
+        if (d > prev) beatMap.set(n.beat, d)
+    }
+    let total = 0
+    for (const v of beatMap.values()) total += v
+    return total
+}
+
+function getTabMeasureBeatSpan(tabNotes: TabNote[] | undefined): number {
+    if (!tabNotes || tabNotes.length === 0) return 1
+    const maxNoteEnd = Math.max(...tabNotes.map(n => n.beat + (n.duration ?? 1)))
+    return Math.max(1, Math.ceil(maxNoteEnd))
+}
+
 const emptyScore: ScoreType = {
     bpm: 120,
     timeSignature: { beats: 4, beatValue: 4 },
@@ -118,30 +139,8 @@ function StaffNotationView({ onBack, initialScore, scoreId }: { onBack: () => vo
             })
             return { ...prev, measures: newMeasures }
         })
-
-        // 自动前进：按音符时值前进，并判断小节是否已满
-        setSelectedNote(prev => {
-            if (!prev) return null
-            const currentMeasure = score.measures.find(m => m.index === prev.measureIndex)
-            // 排除当前拍位置上被替换的旧音符，计算其余音符总时值
-            const existingDuration = (currentMeasure?.notes || [])
-                .filter(n => n.start !== prev.beat)
-                .reduce((sum, n) => sum + n.duration, 0)
-            const newTotalDuration = existingDuration + duration
-            const nextBeat = prev.beat + duration
-
-            if (newTotalDuration < beatsPerMeasure && nextBeat < beatsPerMeasure) {
-                // 小节未满，在小节内前进
-                return { ...prev, beat: nextBeat }
-            }
-            // 小节已满或超出，跳到下一小节
-            const nextMeasureIdx = prev.measureIndex + 1
-            if (nextMeasureIdx < score.measures.length) {
-                return { measureIndex: nextMeasureIdx, beat: 0 }
-            }
-            return prev
-        })
-    }, [selectedNote, beatsPerMeasure, score.measures])
+        // 不再自动前进光标，保持在当前拍位
+    }, [selectedNote])
 
     // Refs 持有最新值，供 keydown 处理器读取，避免 stale closure 导致 Enter 随机失效
     const selectedStaffPosRef = useRef(selectedStaffPos)
@@ -485,6 +484,9 @@ function TabNotationEditor({ onBack, initialScore, scoreId }: { onBack: () => vo
     const [saving, setSaving] = useState(false)
     const [selectedCell, setSelectedCell] = useState<SelectedCell | null>(null)
     const [chordModalVisible, setChordModalVisible] = useState(false)
+    const [currentDuration, setCurrentDuration] = useState(1)
+    // 数字键多位输入缓存（例如按 1 再按 2 组成 12）
+    const fretInputBufferRef = useRef<{ value: string; timer: number | null }>({ value: "", timer: null })
 
     const handleSave = useCallback(async () => {
         setSaving(true)
@@ -535,6 +537,7 @@ function TabNotationEditor({ onBack, initialScore, scoreId }: { onBack: () => vo
                     string: selectedCell.string,
                     fret,
                     beat: selectedCell.beat,
+                    duration: currentDuration,
                 }
 
                 if (existingIdx >= 0) {
@@ -547,27 +550,29 @@ function TabNotationEditor({ onBack, initialScore, scoreId }: { onBack: () => vo
             })
             return { ...prev, measures: newMeasures }
         })
+        // 不再自动移动光标，保持在当前格子
+    }, [selectedCell, currentDuration])
 
-        setSelectedCell(prev => {
-            if (!prev) return null
-            const currentMeasure = score.measures.find(m => m.index === prev.measureIndex)
-            // 计算已使用的不重复拍数（同一拍多根弦只算一拍）
-            const usedBeats = new Set((currentMeasure?.tabNotes || []).map(n => n.beat)).size
-            const measureFull = usedBeats >= beatsPerMeasure
-            const nextBeat = prev.beat + 1
+    const handleDurationChange = useCallback((duration: number) => {
+        setCurrentDuration(duration)
+        if (!selectedCell) return
 
-            if (!measureFull && nextBeat < beatsPerMeasure) {
-                // 小节未满，在小节内前进一格
-                return { ...prev, beat: nextBeat }
-            }
-            // 小节已满，跳到下一小节
-            const nextMeasureIdx = prev.measureIndex + 1
-            if (nextMeasureIdx < score.measures.length) {
-                return { measureIndex: nextMeasureIdx, beat: 0, string: prev.string }
-            }
-            return prev
+        // 更新选中格子上的六线谱音符时值
+        setScore(prev => {
+            const newMeasures = prev.measures.map(m => {
+                if (m.index !== selectedCell.measureIndex) return m
+                const tabNotes = [...(m.tabNotes || [])]
+                const idx = tabNotes.findIndex(
+                    n => n.beat === selectedCell.beat && n.string === selectedCell.string
+                )
+                if (idx >= 0) {
+                    tabNotes[idx] = { ...tabNotes[idx], duration }
+                }
+                return { ...m, tabNotes }
+            })
+            return { ...prev, measures: newMeasures }
         })
-    }, [selectedCell, beatsPerMeasure, score.measures])
+    }, [selectedCell])
 
     const handleDelete = useCallback(() => {
         if (!selectedCell) return
@@ -603,15 +608,12 @@ function TabNotationEditor({ onBack, initialScore, scoreId }: { onBack: () => vo
             if (prev.measureIndex > 0) {
                 const prevMeasure = score.measures.find(m => m.index === prev.measureIndex - 1)
                 const prevTabNotes = prevMeasure?.tabNotes || []
-                const prevMaxBeat = prevTabNotes.length > 0
-                    ? Math.max(...prevTabNotes.map(n => n.beat))
-                    : -1
-                const prevUsedBeats = new Set(prevTabNotes.map(n => n.beat)).size
-                const prevIsFull = prevUsedBeats >= beatsPerMeasure
+                const prevBeatSpan = getTabMeasureBeatSpan(prevTabNotes)
+                const prevIsFull = getTabMeasureDuration(prevTabNotes) >= beatsPerMeasure
                 // 跳到前一小节的实际光标位置，不超出其可见范围
                 const targetBeat = prevIsFull
                     ? beatsPerMeasure - 1
-                    : Math.min(prevMaxBeat + 1, beatsPerMeasure - 1)
+                    : Math.max(0, prevBeatSpan - 1)
                 return { ...prev, measureIndex: prev.measureIndex - 1, beat: targetBeat }
             }
             return prev
@@ -623,12 +625,15 @@ function TabNotationEditor({ onBack, initialScore, scoreId }: { onBack: () => vo
             if (!prev) return { measureIndex: 0, beat: 0, string: 1 }
             const currentMeasure = score.measures.find(m => m.index === prev.measureIndex)
             const tabNotes = currentMeasure?.tabNotes || []
-            const maxBeat = tabNotes.length > 0 ? Math.max(...tabNotes.map(n => n.beat)) : -1
-            const usedBeats = new Set(tabNotes.map(n => n.beat)).size
-            const measureFull = usedBeats >= beatsPerMeasure
+            const beatSpan = getTabMeasureBeatSpan(tabNotes)
+            const measureFull = getTabMeasureDuration(tabNotes) >= beatsPerMeasure
 
-            // 小节未满：最后可见位置是 maxBeat+1（下一个空格子），从那里再移就跳小节
-            if (!measureFull && prev.beat <= maxBeat) {
+            // 小节未满时，先在当前已可见范围内移动
+            if (!measureFull && prev.beat + 1 < beatSpan) {
+                return { ...prev, beat: prev.beat + 1 }
+            }
+            // 小节未满但已经到当前可见末尾时，继续在本小节扩出下一格
+            if (!measureFull) {
                 return { ...prev, beat: prev.beat + 1 }
             }
             // 小节已满或已在最后可见格，跳到下一小节
@@ -656,30 +661,106 @@ function TabNotationEditor({ onBack, initialScore, scoreId }: { onBack: () => vo
     }, [])
 
     useEffect(() => {
+        const flushBuffer = () => {
+            const buf = fretInputBufferRef.current
+            if (!buf.value) return
+            const fret = parseInt(buf.value, 10)
+            if (!Number.isNaN(fret) && fret >= 0 && fret <= 24) {
+                handleFretInput(fret)
+            }
+            if (buf.timer != null) {
+                window.clearTimeout(buf.timer)
+            }
+            fretInputBufferRef.current = { value: "", timer: null }
+        }
+
         const handleKeyDown = (e: KeyboardEvent) => {
+            // 数字键 0-9 组合成 0–24 品位
+            if (e.key >= "0" && e.key <= "9") {
+                e.preventDefault()
+                e.stopPropagation()
+                const buf = fretInputBufferRef.current
+
+                // 新输入：在旧 buffer 基础上追加一位
+                const nextValue = (buf.value + e.key).slice(0, 2) // 最多两位即可覆盖 0–24
+                const fret = parseInt(nextValue, 10)
+
+                // 先清除旧的延时提交
+                if (buf.timer != null) {
+                    window.clearTimeout(buf.timer)
+                }
+
+                // 如果超出 24，就用当前单个数字作为新的开始
+                if (Number.isNaN(fret) || fret > 24) {
+                    const singleFret = parseInt(e.key, 10)
+                    if (!Number.isNaN(singleFret) && singleFret >= 0 && singleFret <= 24) {
+                        handleFretInput(singleFret)
+                    }
+                    fretInputBufferRef.current = { value: "", timer: null }
+                    return
+                }
+
+                // 如果已经是两位数（10–24），立即提交
+                if (nextValue.length === 2 || nextValue === "0") {
+                    handleFretInput(fret)
+                    fretInputBufferRef.current = { value: "", timer: null }
+                    return
+                }
+
+                // 一位数（1–9）先暂存，等待下一位或超时
+                const timer = window.setTimeout(() => {
+                    flushBuffer()
+                }, 400) // 400ms 内未按下一位就按单个品位提交
+
+                fretInputBufferRef.current = { value: nextValue, timer }
+                return
+            }
+
             if (e.key === "ArrowLeft") {
                 e.preventDefault()
+                e.stopPropagation()
+                flushBuffer()
                 handleMoveLeft()
             } else if (e.key === "ArrowRight") {
                 e.preventDefault()
+                e.stopPropagation()
+                flushBuffer()
                 handleMoveRight()
             } else if (e.key === "ArrowUp") {
                 e.preventDefault()
+                e.stopPropagation()
+                flushBuffer()
                 handleMoveUp()
             } else if (e.key === "ArrowDown") {
                 e.preventDefault()
+                e.stopPropagation()
+                flushBuffer()
                 handleMoveDown()
             } else if (e.key === "Delete" || e.key === "Backspace") {
                 e.preventDefault()
+                e.stopPropagation()
+                flushBuffer()
                 handleDelete()
             }
         }
-        window.addEventListener("keydown", handleKeyDown)
-        return () => window.removeEventListener("keydown", handleKeyDown)
-    }, [handleMoveLeft, handleMoveRight, handleMoveUp, handleMoveDown, handleDelete])
+        window.addEventListener("keydown", handleKeyDown, true)
+        return () => {
+            window.removeEventListener("keydown", handleKeyDown, true)
+            const buf = fretInputBufferRef.current
+            if (buf.timer != null) {
+                window.clearTimeout(buf.timer)
+            }
+        }
+    }, [handleFretInput, handleMoveLeft, handleMoveRight, handleMoveUp, handleMoveDown, handleDelete])
 
     const selectedInfo = selectedCell
-        ? `小节 ${selectedCell.measureIndex + 1} | 拍 ${selectedCell.beat + 1} | 弦 ${selectedCell.string}`
+        ? (() => {
+            const measure = score.measures[selectedCell.measureIndex]
+            const used = getTabMeasureDuration(measure?.tabNotes)
+            const full = used >= beatsPerMeasure
+            const status = full ? "已满" : (used === 0 ? "空" : "未满")
+            return `小节 ${selectedCell.measureIndex + 1} | 拍 ${selectedCell.beat + 1} | 弦 ${selectedCell.string} | 已用 ${used}/${beatsPerMeasure} 拍（${status}）`
+        })()
         : "点击六线谱选择位置"
 
     return (
@@ -728,6 +809,8 @@ function TabNotationEditor({ onBack, initialScore, scoreId }: { onBack: () => vo
                 onMoveUp={handleMoveUp}
                 onMoveDown={handleMoveDown}
                 selectedInfo={selectedInfo}
+                currentDuration={currentDuration}
+                onDurationChange={handleDurationChange}
             />
             <ChordScaleModal
                 visible={chordModalVisible}

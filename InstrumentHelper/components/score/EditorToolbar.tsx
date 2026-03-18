@@ -10,6 +10,8 @@ type Props = {
     onMoveUp: () => void
     onMoveDown: () => void
     selectedInfo: string
+    currentDuration: number
+    onDurationChange: (duration: number) => void
 }
 
 export function EditorToolbar({
@@ -21,12 +23,44 @@ export function EditorToolbar({
     onMoveUp,
     onMoveDown,
     selectedInfo,
+    currentDuration,
+    onDurationChange,
 }: Props) {
     return (
         <View style={styles.container}>
             {/* 选中信息 */}
             <View style={styles.infoBar}>
                 <Text style={styles.infoText}>{selectedInfo}</Text>
+            </View>
+
+            {/* 时值选择 */}
+            <View style={styles.row}>
+                <Text style={styles.sectionLabel}>时值</Text>
+                {[
+                    { label: "全", value: 4 },
+                    { label: "二分", value: 2 },
+                    { label: "四分", value: 1 },
+                    { label: "八分", value: 0.5 },
+                    { label: "十六", value: 0.25 },
+                ].map(d => (
+                    <TouchableOpacity
+                        key={`dur-${d.value}`}
+                        style={[
+                            styles.durationBtn,
+                            currentDuration === d.value && styles.durationBtnActive,
+                        ]}
+                        onPress={() => onDurationChange(d.value)}
+                    >
+                        <Text
+                            style={[
+                                styles.durationBtnText,
+                                currentDuration === d.value && styles.durationBtnTextActive,
+                            ]}
+                        >
+                            {d.label}
+                        </Text>
+                    </TouchableOpacity>
+                ))}
             </View>
 
             {/* 方向键 */}
@@ -171,6 +205,30 @@ const styles = StyleSheet.create({
     addBtnText: {
         fontSize: 13,
         fontWeight: "600",
+        color: "#ffffff",
+    },
+    durationBtn: {
+        paddingHorizontal: 10,
+        height: 32,
+        borderRadius: 6,
+        backgroundColor: "#ffffff",
+        borderWidth: 1,
+        borderColor: "#d1d5db",
+        justifyContent: "center",
+        alignItems: "center",
+        marginRight: 6,
+        marginBottom: 2,
+    },
+    durationBtnActive: {
+        backgroundColor: "#3b82f6",
+        borderColor: "#3b82f6",
+    },
+    durationBtnText: {
+        fontSize: 12,
+        fontWeight: "600",
+        color: "#1f2937",
+    },
+    durationBtnTextActive: {
         color: "#ffffff",
     },
 })
