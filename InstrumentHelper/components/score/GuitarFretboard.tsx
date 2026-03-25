@@ -1,5 +1,5 @@
 import React, { useMemo } from "react"
-import { View } from "react-native"
+import { View, Text, StyleSheet } from "react-native"
 import {
   Canvas,
   Circle,
@@ -23,12 +23,16 @@ const STRING_SPACING = 22   // vertical distance between strings
 const RIGHT_MARGIN = 12
 const BOTTOM_MARGIN = 12
 const DOT_RADIUS = 9
+const PLAYING_DOT_RADIUS = 11
 
 // Colors
 const ROOT_COLOR = "#388E3C"
 const TONE_COLOR = "#81C784"
 const ROOT_TEXT_COLOR = "#fff"
 const TONE_TEXT_COLOR = "#1B5E20"
+const PLAYING_COLOR = "#F59E0B"
+const PLAYING_ROOT_COLOR = "#D97706"
+const PLAYING_GLOW_COLOR = "rgba(245, 158, 11, 0.35)"
 const STRING_COLOR = "#9ca3af"
 const FRET_COLOR = "#6b7280"
 const NUT_COLOR = "#374151"
@@ -69,30 +73,43 @@ type Props = {
   tones: string[]
   root: string
   tuning?: string[]
+  /** Specific (string, fret) positions of notes actually played in the current measure */
+  playingPositions?: { string: number; fret: number }[]
 }
 
-export function GuitarFretboard({ tones, root, tuning = DEFAULT_TUNING }: Props) {
+export function GuitarFretboard({ tones, root, tuning = DEFAULT_TUNING, playingPositions }: Props) {
   const font = useFont(fontFile, 11)
   const labelFont = useFont(fontFile, 10)
 
   const totalWidth = LEFT_MARGIN + FRET_COUNT * FRET_WIDTH + RIGHT_MARGIN
   const totalHeight = TOP_MARGIN + (STRING_COUNT - 1) * STRING_SPACING + BOTTOM_MARGIN
 
+  const playingSet = useMemo(() => {
+    return new Set((playingPositions ?? []).map(p => `${p.string}-${p.fret}`))
+  }, [playingPositions])
+
   // Precompute which (string, fret) positions should be highlighted
   const highlights = useMemo(() => {
-    const result: { x: number; y: number; pitchClass: string; isRoot: boolean }[] = []
+    const result: {
+      x: number
+      y: number
+      pitchClass: string
+      isRoot: boolean
+      isPlaying: boolean
+    }[] = []
     for (let s = 1; s <= STRING_COUNT; s++) {
       for (let f = 0; f <= FRET_COUNT; f++) {
         const pc = fretToPitchClass(s, f, tuning)
-        if (tones.includes(pc)) {
+        const playing = playingSet.has(`${s}-${f}`)
+        if (tones.includes(pc) || playing) {
           const x = LEFT_MARGIN + f * FRET_WIDTH
           const y = TOP_MARGIN + (s - 1) * STRING_SPACING
-          result.push({ x, y, pitchClass: pc, isRoot: pc === root })
+          result.push({ x, y, pitchClass: pc, isRoot: pc === root, isPlaying: playing })
         }
       }
     }
     return result
-  }, [tones, root, tuning])
+  }, [tones, root, tuning, playingSet])
 
   if (!font || !labelFont) return null
 
@@ -185,30 +202,103 @@ export function GuitarFretboard({ tones, root, tuning = DEFAULT_TUNING }: Props)
           )
         })}
 
-        {/* ── Highlighted positions ── */}
-        {highlights.map(({ x, y, pitchClass, isRoot }, idx) => {
-          const cx = x === LEFT_MARGIN
-            ? LEFT_MARGIN - FRET_WIDTH / 2 + 4   // open string: draw left of nut
-            : x - FRET_WIDTH / 2                  // between previous and current fret
-          const fillColor = isRoot ? ROOT_COLOR : TONE_COLOR
-          const textColor = isRoot ? ROOT_TEXT_COLOR : TONE_TEXT_COLOR
-          const label = pitchClass.replace("#", "♯")
-          const textX = cx - (label.length > 1 ? 7 : 4)
-          return (
-            <React.Fragment key={`hl-${idx}`}>
-              <Circle cx={cx} cy={y} r={DOT_RADIUS} color={fillColor} />
-              <SkiaText
-                x={textX}
-                y={y + 4}
-                text={label}
-                font={font}
-                color={textColor}
-              />
-            </React.Fragment>
-          )
-        })}
+        {/* ── Scale tone positions (non-playing, render first / underneath) ── */}
+        {highlights
+          .filter(h => !h.isPlaying)
+          .map(({ x, y, pitchClass, isRoot }, idx) => {
+            const cx = x === LEFT_MARGIN
+              ? LEFT_MARGIN - FRET_WIDTH / 2 + 4
+              : x - FRET_WIDTH / 2
+            const fillColor = isRoot ? ROOT_COLOR : TONE_COLOR
+            const textColor = isRoot ? ROOT_TEXT_COLOR : TONE_TEXT_COLOR
+            const label = pitchClass.replace("#", "♯")
+            const textX = cx - (label.length > 1 ? 7 : 4)
+            return (
+              <React.Fragment key={`hl-scale-${idx}`}>
+                <Circle cx={cx} cy={y} r={DOT_RADIUS} color={fillColor} />
+                <SkiaText
+                  x={textX}
+                  y={y + 4}
+                  text={label}
+                  font={font}
+                  color={textColor}
+                />
+              </React.Fragment>
+            )
+          })}
+
+        {/* ── Playing positions (render on top with glow + larger dot) ── */}
+        {highlights
+          .filter(h => h.isPlaying)
+          .map(({ x, y, pitchClass, isRoot }, idx) => {
+            const cx = x === LEFT_MARGIN
+              ? LEFT_MARGIN - FRET_WIDTH / 2 + 4
+              : x - FRET_WIDTH / 2
+            const fillColor = isRoot ? PLAYING_ROOT_COLOR : PLAYING_COLOR
+            const label = pitchClass.replace("#", "♯")
+            const textX = cx - (label.length > 1 ? 7 : 4)
+            return (
+              <React.Fragment key={`hl-play-${idx}`}>
+                {/* Glow ring */}
+                <Circle cx={cx} cy={y} r={PLAYING_DOT_RADIUS + 4} color={PLAYING_GLOW_COLOR} />
+                {/* Dot */}
+                <Circle cx={cx} cy={y} r={PLAYING_DOT_RADIUS} color={fillColor} />
+                <SkiaText
+                  x={textX}
+                  y={y + 4}
+                  text={label}
+                  font={font}
+                  color="#fff"
+                />
+              </React.Fragment>
+            )
+          })}
 
       </Canvas>
+
+      {/* Legend */}
+      <View style={styles.legend}>
+        <View style={styles.legendItem}>
+          <View style={[styles.legendDot, { backgroundColor: PLAYING_ROOT_COLOR }]} />
+          <Text style={styles.legendText}>演奏中（根音）</Text>
+        </View>
+        <View style={styles.legendItem}>
+          <View style={[styles.legendDot, { backgroundColor: PLAYING_COLOR }]} />
+          <Text style={styles.legendText}>演奏中</Text>
+        </View>
+        <View style={styles.legendItem}>
+          <View style={[styles.legendDot, { backgroundColor: ROOT_COLOR }]} />
+          <Text style={styles.legendText}>根音</Text>
+        </View>
+        <View style={styles.legendItem}>
+          <View style={[styles.legendDot, { backgroundColor: TONE_COLOR }]} />
+          <Text style={styles.legendText}>音阶音</Text>
+        </View>
+      </View>
     </View>
   )
 }
+
+const styles = StyleSheet.create({
+  legend: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 10,
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+  },
+  legendItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+  },
+  legendDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+  },
+  legendText: {
+    fontSize: 10,
+    color: "#9ca3af",
+  },
+})

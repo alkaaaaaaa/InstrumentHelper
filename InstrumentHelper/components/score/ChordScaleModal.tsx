@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from "react"
+import React, { useState, useEffect, useCallback, useMemo } from "react"
 import {
   Modal,
   View,
@@ -15,6 +15,28 @@ import { GuitarFretboard } from "./GuitarFretboard"
 
 const DEFAULT_TUNING = ["E2", "A2", "D3", "G3", "B3", "E4"]
 
+const FLAT_TO_SHARP: Record<string, string> = {
+  Cb: "B", Db: "C#", Eb: "D#", Fb: "E", Gb: "F#", Ab: "G#", Bb: "A#",
+}
+
+const PITCH_CLASSES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
+
+function pitchToClass(pitch: string): string {
+  const match = pitch.match(/^([A-G][#b]?)/)
+  if (!match) return "C"
+  return FLAT_TO_SHARP[match[1]] ?? match[1]
+}
+
+function fretToPitchClass(stringNum: number, fret: number, tuning: string[]): string {
+  const openPitch = tuning[6 - stringNum] ?? "E4"
+  const match = openPitch.match(/^([A-G][#b]?)/)
+  if (!match) return "C"
+  const openClass = FLAT_TO_SHARP[match[1]] ?? match[1]
+  const openIdx = PITCH_CLASSES.indexOf(openClass)
+  if (openIdx === -1) return "C"
+  return PITCH_CLASSES[(openIdx + fret) % 12]
+}
+
 type ViewMode = "keyboard" | "fretboard"
 
 type Props = {
@@ -23,15 +45,45 @@ type Props = {
   measure: Measure | null
   tuning?: string[]
   measureIndex: number
+  /** Current playback beat within this measure; null = not playing (show all notes) */
+  currentBeat?: number | null
 }
 
-export function ChordScaleModal({ visible, onClose, measure, tuning, measureIndex }: Props) {
+export function ChordScaleModal({ visible, onClose, measure, tuning, measureIndex, currentBeat }: Props) {
   const [viewMode, setViewMode] = useState<ViewMode>("keyboard")
   const [result, setResult] = useState<DetectionResult | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   const effectiveTuning = tuning?.length ? tuning : DEFAULT_TUNING
+
+  // Pitch classes of notes sounding at currentBeat (or all notes when no beat given)
+  const playingPitchClasses = useMemo(() => {
+    if (!measure) return []
+    const noteFilter = (start: number, duration: number) =>
+      currentBeat == null || (start <= currentBeat && currentBeat < start + duration)
+
+    const fromNotes = (measure.notes ?? [])
+      .filter(n => noteFilter(n.start, n.duration))
+      .map(n => pitchToClass(n.pitch))
+
+    const fromTab = (measure.tabNotes ?? [])
+      .filter(n => noteFilter(n.beat, n.duration ?? 1))
+      .map(n => fretToPitchClass(n.string, n.fret, effectiveTuning))
+
+    return [...new Set([...fromNotes, ...fromTab])]
+  }, [measure, effectiveTuning, currentBeat])
+
+  // Specific (string, fret) positions sounding at currentBeat (or all tab notes)
+  const playingTabPositions = useMemo(() => {
+    if (!measure) return []
+    return (measure.tabNotes ?? [])
+      .filter(n =>
+        currentBeat == null ||
+        (n.beat <= currentBeat && currentBeat < n.beat + (n.duration ?? 1))
+      )
+      .map(n => ({ string: n.string, fret: n.fret }))
+  }, [measure, currentBeat])
 
   const analyze = useCallback(async () => {
     if (!measure) return
@@ -73,7 +125,17 @@ export function ChordScaleModal({ visible, onClose, measure, tuning, measureInde
         <View style={styles.sheet}>
           {/* Header */}
           <View style={styles.header}>
-            <Text style={styles.title}>小节 {measureIndex + 1} 的和弦/音阶分析</Text>
+            <View>
+              <Text style={styles.title}>小节 {measureIndex + 1} 的和弦/音阶</Text>
+              {currentBeat != null && (
+                <Text style={styles.beatIndicator}>
+                  ▶ 第 {currentBeat + 1} 拍
+                  {playingPitchClasses.length > 0
+                    ? `  ·  ${playingPitchClasses.join(" ")}`
+                    : "  ·  休止"}
+                </Text>
+              )}
+            </View>
             <TouchableOpacity onPress={onClose} style={styles.closeBtn}>
               <Text style={styles.closeBtnText}>✕</Text>
             </TouchableOpacity>
@@ -142,12 +204,17 @@ export function ChordScaleModal({ visible, onClose, measure, tuning, measureInde
           <ScrollView style={styles.vizContainer} horizontal={viewMode === "fretboard"}>
             {result && result.type !== "unknown" ? (
               viewMode === "keyboard" ? (
-                <PianoKeyboard tones={result.tones} root={result.root} />
+                <PianoKeyboard
+                  tones={result.tones}
+                  root={result.root}
+                  playingNotes={playingPitchClasses}
+                />
               ) : (
                 <GuitarFretboard
                   tones={result.tones}
                   root={result.root}
                   tuning={effectiveTuning}
+                  playingPositions={playingTabPositions}
                 />
               )
             ) : (
@@ -194,6 +261,12 @@ const styles = StyleSheet.create({
     color: "#e0e0e0",
     fontSize: 15,
     fontWeight: "600",
+  },
+  beatIndicator: {
+    color: "#F59E0B",
+    fontSize: 12,
+    fontWeight: "500",
+    marginTop: 2,
   },
   closeBtn: {
     padding: 4,

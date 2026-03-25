@@ -12,6 +12,9 @@ const ROOT_COLOR = "#388E3C"
 const TONE_COLOR = "#81C784"
 const ROOT_TEXT_COLOR = "#fff"
 const TONE_TEXT_COLOR = "#1B5E20"
+const PLAYING_COLOR = "#F59E0B"
+const PLAYING_ROOT_COLOR = "#D97706"
+const PLAYING_TEXT_COLOR = "#fff"
 
 // White keys per octave: C D E F G A B
 const WHITE_NOTE_NAMES = ["C", "D", "E", "F", "G", "A", "B"]
@@ -29,6 +32,8 @@ const OCTAVES = [3, 4]
 type Props = {
   tones: string[]
   root: string
+  /** Pitch class names (no octave) of notes actually present in the current measure */
+  playingNotes?: string[]
 }
 
 function isRoot(noteName: string, root: string) {
@@ -39,42 +44,89 @@ function isTone(noteName: string, tones: string[]) {
   return tones.includes(noteName)
 }
 
-function WhiteKey({ noteName, tones, root }: { noteName: string; tones: string[]; root: string }) {
+function isPlaying(noteName: string, playingNotes?: string[]) {
+  return (playingNotes ?? []).includes(noteName)
+}
+
+function WhiteKey({
+  noteName,
+  tones,
+  root,
+  playingNotes,
+}: {
+  noteName: string
+  tones: string[]
+  root: string
+  playingNotes?: string[]
+}) {
   const highlighted = isTone(noteName, tones)
   const rootKey = isRoot(noteName, root)
+  const playing = isPlaying(noteName, playingNotes)
+
+  const keyStyle = playing
+    ? rootKey
+      ? styles.whiteKeyPlayingRoot
+      : styles.whiteKeyPlaying
+    : rootKey
+    ? styles.whiteKeyRoot
+    : highlighted
+    ? styles.whiteKeyTone
+    : null
+
+  const showLabel = highlighted || playing
+  const labelStyle = playing
+    ? styles.playingLabel
+    : rootKey
+    ? styles.rootLabel
+    : styles.toneLabel
 
   return (
-    <View
-      style={[
-        styles.whiteKey,
-        highlighted && !rootKey && styles.whiteKeyTone,
-        rootKey && styles.whiteKeyRoot,
-      ]}
-    >
-      {highlighted && (
-        <Text style={[styles.keyLabel, rootKey ? styles.rootLabel : styles.toneLabel]}>
-          {noteName}
-        </Text>
+    <View style={[styles.whiteKey, keyStyle]}>
+      {showLabel && (
+        <Text style={[styles.keyLabel, labelStyle]}>{noteName}</Text>
       )}
     </View>
   )
 }
 
-function BlackKey({ noteName, tones, root, offsetX }: { noteName: string; tones: string[]; root: string; offsetX: number }) {
+function BlackKey({
+  noteName,
+  tones,
+  root,
+  offsetX,
+  playingNotes,
+}: {
+  noteName: string
+  tones: string[]
+  root: string
+  offsetX: number
+  playingNotes?: string[]
+}) {
   const highlighted = isTone(noteName, tones)
   const rootKey = isRoot(noteName, root)
+  const playing = isPlaying(noteName, playingNotes)
+
+  const keyStyle = playing
+    ? rootKey
+      ? styles.blackKeyPlayingRoot
+      : styles.blackKeyPlaying
+    : rootKey
+    ? styles.blackKeyRoot
+    : highlighted
+    ? styles.blackKeyTone
+    : null
+
+  const showLabel = highlighted || playing
+  const labelStyle = playing
+    ? styles.playingLabelBlack
+    : rootKey
+    ? styles.rootLabelBlack
+    : styles.toneLabelBlack
 
   return (
-    <View
-      style={[
-        styles.blackKey,
-        { left: offsetX },
-        highlighted && !rootKey && styles.blackKeyTone,
-        rootKey && styles.blackKeyRoot,
-      ]}
-    >
-      {highlighted && (
-        <Text style={[styles.keyLabelBlack, rootKey ? styles.rootLabelBlack : styles.toneLabelBlack]}>
+    <View style={[styles.blackKey, { left: offsetX }, keyStyle]}>
+      {showLabel && (
+        <Text style={[styles.keyLabelBlack, labelStyle]}>
           {noteName.replace("#", "♯")}
         </Text>
       )}
@@ -82,7 +134,7 @@ function BlackKey({ noteName, tones, root, offsetX }: { noteName: string; tones:
   )
 }
 
-export function PianoKeyboard({ tones, root }: Props) {
+export function PianoKeyboard({ tones, root, playingNotes }: Props) {
   return (
     <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.scroll}>
       <View style={styles.container}>
@@ -98,13 +150,13 @@ export function PianoKeyboard({ tones, root }: Props) {
                     noteName={noteName}
                     tones={tones}
                     root={root}
+                    playingNotes={playingNotes}
                   />
                 ))}
               </View>
 
               {/* Black keys (absolute positioned) */}
               {BLACK_KEYS.map(({ afterWhite, name }) => {
-                // Black key left edge = afterWhite * WHITE_KEY_WIDTH + WHITE_KEY_WIDTH - BLACK_KEY_WIDTH/2
                 const offsetX = afterWhite * WHITE_KEY_WIDTH + WHITE_KEY_WIDTH - BLACK_KEY_WIDTH / 2
                 return (
                   <BlackKey
@@ -113,6 +165,7 @@ export function PianoKeyboard({ tones, root }: Props) {
                     tones={tones}
                     root={root}
                     offsetX={offsetX}
+                    playingNotes={playingNotes}
                   />
                 )
               })}
@@ -122,6 +175,26 @@ export function PianoKeyboard({ tones, root }: Props) {
             </View>
           )
         })}
+      </View>
+
+      {/* Legend */}
+      <View style={styles.legend}>
+        <View style={styles.legendItem}>
+          <View style={[styles.legendDot, { backgroundColor: PLAYING_ROOT_COLOR }]} />
+          <Text style={styles.legendText}>演奏中（根音）</Text>
+        </View>
+        <View style={styles.legendItem}>
+          <View style={[styles.legendDot, { backgroundColor: PLAYING_COLOR }]} />
+          <Text style={styles.legendText}>演奏中</Text>
+        </View>
+        <View style={styles.legendItem}>
+          <View style={[styles.legendDot, { backgroundColor: ROOT_COLOR }]} />
+          <Text style={styles.legendText}>根音</Text>
+        </View>
+        <View style={styles.legendItem}>
+          <View style={[styles.legendDot, { backgroundColor: TONE_COLOR }]} />
+          <Text style={styles.legendText}>音阶音</Text>
+        </View>
       </View>
     </ScrollView>
   )
@@ -134,7 +207,7 @@ const styles = StyleSheet.create({
   container: {
     flexDirection: "row",
     paddingHorizontal: 8,
-    paddingBottom: 8,
+    paddingBottom: 4,
   },
   octave: {
     position: "relative",
@@ -164,6 +237,16 @@ const styles = StyleSheet.create({
   whiteKeyRoot: {
     backgroundColor: ROOT_COLOR,
   },
+  whiteKeyPlaying: {
+    backgroundColor: PLAYING_COLOR,
+    borderWidth: 2,
+    borderColor: "#fff",
+  },
+  whiteKeyPlayingRoot: {
+    backgroundColor: PLAYING_ROOT_COLOR,
+    borderWidth: 2,
+    borderColor: "#fff",
+  },
   blackKey: {
     position: "absolute",
     top: 0,
@@ -181,6 +264,14 @@ const styles = StyleSheet.create({
   },
   blackKeyRoot: {
     backgroundColor: "#1B5E20",
+  },
+  blackKeyPlaying: {
+    backgroundColor: "#D97706",
+  },
+  blackKeyPlayingRoot: {
+    backgroundColor: "#92400E",
+    borderWidth: 1.5,
+    borderColor: PLAYING_COLOR,
   },
   keyLabel: {
     fontSize: 9,
@@ -202,11 +293,38 @@ const styles = StyleSheet.create({
   toneLabelBlack: {
     color: "#C8E6C9",
   },
+  playingLabel: {
+    color: PLAYING_TEXT_COLOR,
+  },
+  playingLabelBlack: {
+    color: "#fff",
+  },
   octaveLabel: {
     position: "absolute",
     bottom: 0,
     left: 2,
     fontSize: 9,
+    color: "#9e9e9e",
+  },
+  legend: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 10,
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+  },
+  legendItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+  },
+  legendDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+  },
+  legendText: {
+    fontSize: 10,
     color: "#9e9e9e",
   },
 })

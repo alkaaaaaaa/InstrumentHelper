@@ -473,6 +473,7 @@ function StaffNotationView({ onBack, initialScore, scoreId }: { onBack: () => vo
                 measure={score.measures[currentPosition?.measureIndex ?? selectedNote?.measureIndex ?? 0] ?? null}
                 tuning={score.tuning ?? DEFAULT_TUNING}
                 measureIndex={currentPosition?.measureIndex ?? selectedNote?.measureIndex ?? 0}
+                currentBeat={currentPosition?.beat ?? selectedNote?.beat ?? null}
             />
         </View>
     )
@@ -818,6 +819,7 @@ function TabNotationEditor({ onBack, initialScore, scoreId }: { onBack: () => vo
                 measure={score.measures[selectedCell?.measureIndex ?? 0] ?? null}
                 tuning={score.tuning ?? DEFAULT_TUNING}
                 measureIndex={selectedCell?.measureIndex ?? 0}
+                currentBeat={selectedCell?.beat ?? null}
             />
         </View>
     )
