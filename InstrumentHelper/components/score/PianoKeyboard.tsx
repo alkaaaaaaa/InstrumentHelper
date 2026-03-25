@@ -27,12 +27,15 @@ const BLACK_KEYS = [
   { afterWhite: 5, name: "A#" },
 ]
 
-const OCTAVES = [3, 4]
+const OCTAVES = [2, 3, 4, 5, 6]
 
 type Props = {
   tones: string[]
   root: string
-  /** Pitch class names (no octave) of notes actually present in the current measure */
+  /**
+   * Full pitch names WITH octave of notes actually present in the current beat/measure.
+   * e.g. ["C4", "D#3", "A#5"]  — only those exact keys will be highlighted amber.
+   */
   playingNotes?: string[]
 }
 
@@ -44,24 +47,28 @@ function isTone(noteName: string, tones: string[]) {
   return tones.includes(noteName)
 }
 
-function isPlaying(noteName: string, playingNotes?: string[]) {
-  return (playingNotes ?? []).includes(noteName)
+/** noteName = pitch class (e.g. "C#"), octave = number (e.g. 4) */
+function isPlayingKey(noteName: string, octave: number, playingNotes?: string[]) {
+  const full = `${noteName}${octave}`
+  return (playingNotes ?? []).includes(full)
 }
 
 function WhiteKey({
   noteName,
+  octave,
   tones,
   root,
   playingNotes,
 }: {
   noteName: string
+  octave: number
   tones: string[]
   root: string
   playingNotes?: string[]
 }) {
   const highlighted = isTone(noteName, tones)
   const rootKey = isRoot(noteName, root)
-  const playing = isPlaying(noteName, playingNotes)
+  const playing = isPlayingKey(noteName, octave, playingNotes)
 
   const keyStyle = playing
     ? rootKey
@@ -91,12 +98,14 @@ function WhiteKey({
 
 function BlackKey({
   noteName,
+  octave,
   tones,
   root,
   offsetX,
   playingNotes,
 }: {
   noteName: string
+  octave: number
   tones: string[]
   root: string
   offsetX: number
@@ -104,7 +113,7 @@ function BlackKey({
 }) {
   const highlighted = isTone(noteName, tones)
   const rootKey = isRoot(noteName, root)
-  const playing = isPlaying(noteName, playingNotes)
+  const playing = isPlayingKey(noteName, octave, playingNotes)
 
   const keyStyle = playing
     ? rootKey
@@ -148,6 +157,7 @@ export function PianoKeyboard({ tones, root, playingNotes }: Props) {
                   <WhiteKey
                     key={`${noteName}${octave}`}
                     noteName={noteName}
+                    octave={octave}
                     tones={tones}
                     root={root}
                     playingNotes={playingNotes}
@@ -162,6 +172,7 @@ export function PianoKeyboard({ tones, root, playingNotes }: Props) {
                   <BlackKey
                     key={`${name}${octave}`}
                     noteName={name}
+                    octave={octave}
                     tones={tones}
                     root={root}
                     offsetX={offsetX}

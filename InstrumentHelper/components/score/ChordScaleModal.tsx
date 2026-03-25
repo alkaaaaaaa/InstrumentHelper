@@ -37,6 +37,29 @@ function fretToPitchClass(stringNum: number, fret: number, tuning: string[]): st
   return PITCH_CLASSES[(openIdx + fret) % 12]
 }
 
+/** Returns full pitch with octave, e.g. "A4", "C#5" */
+function fretToFullPitch(stringNum: number, fret: number, tuning: string[]): string {
+  const openPitch = tuning[6 - stringNum] ?? "E4"
+  const match = openPitch.match(/^([A-G][#b]?)(\d+)$/)
+  if (!match) return "E4"
+  const openClass = FLAT_TO_SHARP[match[1]] ?? match[1]
+  const openOctave = parseInt(match[2], 10)
+  const openIdx = PITCH_CLASSES.indexOf(openClass)
+  if (openIdx === -1) return "E4"
+  const totalSemitones = openOctave * 12 + openIdx + fret
+  const newOctave = Math.floor(totalSemitones / 12)
+  const newClass = PITCH_CLASSES[totalSemitones % 12]
+  return `${newClass}${newOctave}`
+}
+
+/** Normalize a full pitch to sharp notation, e.g. "Bb4" → "A#4" */
+function normalizePitch(pitch: string): string {
+  const match = pitch.match(/^([A-G][#b]?)(\d+)$/)
+  if (!match) return pitch
+  const normalized = FLAT_TO_SHARP[match[1]] ?? match[1]
+  return `${normalized}${match[2]}`
+}
+
 type ViewMode = "keyboard" | "fretboard"
 
 type Props = {
@@ -57,19 +80,19 @@ export function ChordScaleModal({ visible, onClose, measure, tuning, measureInde
 
   const effectiveTuning = tuning?.length ? tuning : DEFAULT_TUNING
 
-  // Pitch classes of notes sounding at currentBeat (or all notes when no beat given)
-  const playingPitchClasses = useMemo(() => {
+  // Full pitches WITH octave of notes sounding at currentBeat (e.g. "C4", "D#3")
+  const playingFullPitches = useMemo(() => {
     if (!measure) return []
     const noteFilter = (start: number, duration: number) =>
       currentBeat == null || (start <= currentBeat && currentBeat < start + duration)
 
     const fromNotes = (measure.notes ?? [])
       .filter(n => noteFilter(n.start, n.duration))
-      .map(n => pitchToClass(n.pitch))
+      .map(n => normalizePitch(n.pitch))
 
     const fromTab = (measure.tabNotes ?? [])
       .filter(n => noteFilter(n.beat, n.duration ?? 1))
-      .map(n => fretToPitchClass(n.string, n.fret, effectiveTuning))
+      .map(n => fretToFullPitch(n.string, n.fret, effectiveTuning))
 
     return [...new Set([...fromNotes, ...fromTab])]
   }, [measure, effectiveTuning, currentBeat])
@@ -130,8 +153,8 @@ export function ChordScaleModal({ visible, onClose, measure, tuning, measureInde
               {currentBeat != null && (
                 <Text style={styles.beatIndicator}>
                   ▶ 第 {currentBeat + 1} 拍
-                  {playingPitchClasses.length > 0
-                    ? `  ·  ${playingPitchClasses.join(" ")}`
+                  {playingFullPitches.length > 0
+                    ? `  ·  ${playingFullPitches.join(" ")}`
                     : "  ·  休止"}
                 </Text>
               )}
@@ -207,7 +230,7 @@ export function ChordScaleModal({ visible, onClose, measure, tuning, measureInde
                 <PianoKeyboard
                   tones={result.tones}
                   root={result.root}
-                  playingNotes={playingPitchClasses}
+                  playingNotes={playingFullPitches}
                 />
               ) : (
                 <GuitarFretboard
