@@ -14,17 +14,19 @@ type BeatEvent = {
     beat: number
     pitches: string[]
     durationSec: number
+    /** 到下一个事件的等待时间（毫秒），用于 setTimeout 调度 */
+    gapMs: number
 }
 
 /**
- * 将 Score 展开为按时间顺序排列的 beat 事件列表
+ * 将 Score 展开为按时间顺序排列的 beat 事件列表。
+ * 支持分数拍位置（八分、十六分等），每个事件携带正确的间隔时长。
  */
 function buildBeatEvents(score: Score): BeatEvent[] {
     const events: BeatEvent[] = []
-    const beatDurationSec = 60 / score.bpm // 每拍的秒数
+    const beatDurationSec = 60 / score.bpm
 
     for (const measure of score.measures) {
-        // 收集每个拍位置上的所有音符
         const beatMap = new Map<number, Note[]>()
 
         for (const note of measure.notes) {
@@ -35,22 +37,41 @@ function buildBeatEvents(score: Score): BeatEvent[] {
             beatMap.get(beat)!.push(note)
         }
 
-        // 为每个拍位置创建事件（包括空拍）
-        for (let beat = 0; beat < score.timeSignature.beats; beat++) {
+        // 合并整数拍位置（空拍占位）和所有音符实际起始位置（含分数拍）
+        const positionSet = new Set<number>()
+        for (let b = 0; b < score.timeSignature.beats; b++) {
+            positionSet.add(b)
+        }
+        for (const beat of beatMap.keys()) {
+            positionSet.add(beat)
+        }
+
+        const sortedPositions = Array.from(positionSet).sort((a, b) => a - b)
+
+        for (let i = 0; i < sortedPositions.length; i++) {
+            const beat = sortedPositions[i]
+            const nextBeat = i + 1 < sortedPositions.length
+                ? sortedPositions[i + 1]
+                : score.timeSignature.beats
+
             const notes = beatMap.get(beat) || []
             const pitches = notes.map(n => n.pitch)
 
-            // 计算音符持续时间：取该拍位置上最短的音符时长
-            let durationBeats = 1
+            // 音符发声时长：取该位置最短音符时长
+            let durationBeats = nextBeat - beat
             if (notes.length > 0) {
                 durationBeats = Math.min(...notes.map(n => n.duration))
             }
+
+            // 到下一事件的间隔：由位置差决定，与音符时值无关
+            const gapBeats = nextBeat - beat
 
             events.push({
                 measureIndex: measure.index,
                 beat,
                 pitches,
                 durationSec: durationBeats * beatDurationSec,
+                gapMs: gapBeats * beatDurationSec * 1000,
             })
         }
     }
@@ -82,8 +103,6 @@ export function useScorePlayer(score: Score) {
         }
     }, [])
 
-    const beatDurationMs = (60 / score.bpm) * 1000
-
     const playBeatSequence = useCallback(async (events: BeatEvent[], startIndex: number) => {
         if (startIndex >= events.length) {
             // 播放完毕
@@ -109,13 +128,13 @@ export function useScorePlayer(score: Score) {
             await playNotes(event.pitches, event.durationSec)
         }
 
-        // 安排下一拍
+        // 安排下一拍：使用该事件自身的间隔时长，正确支持分数拍
         timerRef.current = setTimeout(() => {
             if (playbackStateRef.current === "playing") {
                 playBeatSequence(events, startIndex + 1)
             }
-        }, beatDurationMs)
-    }, [beatDurationMs])
+        }, event.gapMs)
+    }, [])
 
     const play = useCallback(async () => {
         // 初始化音频模式
