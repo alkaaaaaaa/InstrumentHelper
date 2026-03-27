@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useRef, useEffect, useMemo } from "react"
-import { View, ScrollView, StyleSheet, Text, TouchableOpacity, Alert, ActivityIndicator, FlatList, LayoutChangeEvent } from "react-native"
+import { View, ScrollView, StyleSheet, Text, TouchableOpacity, Alert, ActivityIndicator, FlatList, LayoutChangeEvent, Platform } from "react-native"
 import { TabStaff } from "../../components/score/TabStaff"
 import { EditorToolbar } from "../../components/score/EditorToolbar"
 import { StaffNotation, BEAT_WIDTH, LEFT_MARGIN, STAFF_LINE_SPACING, staffPositionToPitch, ChordAnnotation } from "../../components/score/StaffNotation"
@@ -8,6 +8,26 @@ import { ChordScaleModal } from "../../components/score/ChordScaleModal"
 import { Measure, Note, TabNote, Score as ScoreType } from "../../models/Score"
 import { useScorePlayer } from "../../hooks/useScorePlayer"
 import { scoreApi, ScoreListItem } from "../../utils/api"
+
+// React Native Web 的 Alert.alert 是空实现，用 window.alert/confirm 替代
+function showAlert(title: string, message?: string) {
+    if (Platform.OS === "web") {
+        window.alert(message ? `${title}\n${message}` : title)
+    } else {
+        Alert.alert(title, message)
+    }
+}
+
+function showConfirm(message: string, onConfirm: () => void) {
+    if (Platform.OS === "web") {
+        if (window.confirm(message)) onConfirm()
+    } else {
+        Alert.alert("确认", message, [
+            { text: "取消", style: "cancel" },
+            { text: "确定", style: "destructive", onPress: onConfirm },
+        ])
+    }
+}
 
 const DEFAULT_TUNING = ["E2", "A2", "D3", "G3", "B3", "E4"]
 
@@ -93,15 +113,15 @@ function StaffNotationView({ onBack, initialScore, scoreId }: { onBack: () => vo
             if (currentScoreId) {
                 const updated = await scoreApi.update(currentScoreId, payload)
                 setScore(prev => ({ ...prev, ...updated }))
-                Alert.alert("保存成功", "乐谱已更新")
+                showAlert("保存成功", "乐谱已更新")
             } else {
                 const created = await scoreApi.create(payload)
                 setCurrentScoreId(created._id)
                 setScore(prev => ({ ...prev, ...created }))
-                Alert.alert("保存成功", "乐谱已创建")
+                showAlert("保存成功", "乐谱已创建")
             }
         } catch (e) {
-            Alert.alert("保存失败", "请检查网络连接和后端服务")
+            showAlert("保存失败", "请检查网络连接和后端服务")
         } finally {
             setSaving(false)
         }
@@ -212,7 +232,7 @@ function StaffNotationView({ onBack, initialScore, scoreId }: { onBack: () => vo
         setChordAnnotations(results)
         setAnalyzing(false)
         if (results.length === 0) {
-            Alert.alert("分析完成", "未检测到和弦（需要同一拍有 2 个以上音符）")
+            showAlert("分析完成", "未检测到和弦（需要同一拍有 2 个以上音符）")
         }
     }, [score.measures, score.tuning])
 
@@ -528,15 +548,15 @@ function TabNotationEditor({ onBack, initialScore, scoreId }: { onBack: () => vo
             if (currentScoreId) {
                 const updated = await scoreApi.update(currentScoreId, payload)
                 setScore(prev => ({ ...prev, ...updated }))
-                Alert.alert("保存成功", "乐谱已更新")
+                showAlert("保存成功", "乐谱已更新")
             } else {
                 const created = await scoreApi.create(payload)
                 setCurrentScoreId(created._id)
                 setScore(prev => ({ ...prev, ...created }))
-                Alert.alert("保存成功", "乐谱已创建")
+                showAlert("保存成功", "乐谱已创建")
             }
         } catch (e) {
-            Alert.alert("保存失败", "请检查网络连接和后端服务")
+            showAlert("保存失败", "请检查网络连接和后端服务")
         } finally {
             setSaving(false)
         }
@@ -891,24 +911,19 @@ export default function Score() {
             setEditingScoreId(item._id)
             setMode(targetMode)
         } catch {
-            Alert.alert("加载失败", "无法加载乐谱数据")
+            showAlert("加载失败", "无法加载乐谱数据")
         }
     }, [])
 
     const handleDeleteScore = useCallback((item: ScoreListItem) => {
-        Alert.alert("删除确认", `确定要删除「${item.title}」吗？`, [
-            { text: "取消", style: "cancel" },
-            {
-                text: "删除", style: "destructive", onPress: async () => {
-                    try {
-                        await scoreApi.delete(item._id)
-                        setScoreList(prev => prev.filter(s => s._id !== item._id))
-                    } catch {
-                        Alert.alert("删除失败", "请检查网络连接")
-                    }
-                }
-            },
-        ])
+        showConfirm(`确定要删除「${item.title}」吗？`, async () => {
+            try {
+                await scoreApi.delete(item._id)
+                setScoreList(prev => prev.filter(s => s._id !== item._id))
+            } catch {
+                showAlert("删除失败", "请检查网络连接")
+            }
+        })
     }, [])
 
     const handleBack = useCallback(() => {
