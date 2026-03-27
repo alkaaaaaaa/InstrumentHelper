@@ -213,9 +213,12 @@ function StaffNotationComponent({
                 : 0
             const isFull = maxNoteEnd >= beatsPerMeasure
             let beatSpan = isFull ? beatsPerMeasure : Math.max(1, Math.ceil(maxNoteEnd))
-            // 光标在该小节且超出当前内容时，扩展以显示幽灵音符（步进为 noteResolution）
-            if (selectedNote && selectedNote.measureIndex === m.index && selectedNote.beat >= beatSpan) {
-                beatSpan = Math.ceil((selectedNote.beat + noteResolution) / noteResolution) * noteResolution
+            // 光标在该小节时，确保符头中心（beat + slotSize/2）严格在小节内
+            if (!isFull && selectedNote && selectedNote.measureIndex === m.index) {
+                const cursorCenterBeat = selectedNote.beat + noteResolution / 2
+                if (cursorCenterBeat >= beatSpan) {
+                    beatSpan = Math.ceil(selectedNote.beat + noteResolution)
+                }
             }
             const width = beatSpan * BEAT_WIDTH
             x += width
@@ -260,9 +263,10 @@ function StaffNotationComponent({
         return firstLineY - staffPos * HALF_STEP
     }, [staffLineY])
 
-    // 拍的 X 坐标（拍中心）
-    const beatX = useCallback((measureStartX: number, beat: number) => {
-        return measureStartX + beat * BEAT_WIDTH + BEAT_WIDTH / 2
+    // 拍的 X 坐标（符头中心）
+    // slotSize：该拍位占用的时值宽度（四分=1, 八分=0.5...），用于将符头居中在自身时值槽内
+    const beatX = useCallback((measureStartX: number, beat: number, slotSize: number = 1) => {
+        return measureStartX + beat * BEAT_WIDTH + slotSize * BEAT_WIDTH / 2
     }, [])
 
     // 用于在 handlePress 中将 locationY 换算成 staffPos
@@ -381,20 +385,21 @@ function StaffNotationComponent({
                 {selectedNote && (() => {
                     const layout = measureLayout.find(l => l.measure.index === selectedNote.measureIndex)
                     if (!layout) return null
-                    const cx = beatX(layout.startX, selectedNote.beat)
+                    const slotW = noteResolution * BEAT_WIDTH
+                    const cx = beatX(layout.startX, selectedNote.beat, noteResolution)
                     return (
                         <Group>
                             <Rect
-                                x={cx - BEAT_WIDTH / 2 + 4}
+                                x={cx - slotW / 2 + 4}
                                 y={staffLineY(5) - 10}
-                                width={BEAT_WIDTH - 8}
+                                width={slotW - 8}
                                 height={staffHeight + 20}
                                 color={SELECTED_COLOR}
                             />
                             <Rect
-                                x={cx - BEAT_WIDTH / 2 + 4}
+                                x={cx - slotW / 2 + 4}
                                 y={staffLineY(5) - 10}
-                                width={BEAT_WIDTH - 8}
+                                width={slotW - 8}
                                 height={staffHeight + 20}
                                 color={SELECTED_BORDER}
                                 style="stroke"
@@ -408,7 +413,7 @@ function StaffNotationComponent({
                 {selectedNote && selectedStaffPos !== undefined && (() => {
                     const layout = measureLayout.find(l => l.measure.index === selectedNote.measureIndex)
                     if (!layout) return null
-                    const cx = beatX(layout.startX, selectedNote.beat)
+                    const cx = beatX(layout.startX, selectedNote.beat, noteResolution)
                     const cy = staffPosToY(selectedStaffPos)
                     const ghostLedger = getLedgerLines(selectedStaffPos)
                     return (
@@ -446,7 +451,7 @@ function StaffNotationComponent({
                         n => n.start === selectedNote.beat && pitchToStaffPosition(n.pitch) === selectedStaffPos
                     )
                     if (!matched) return null
-                    const cx = beatX(layout.startX, matched.start)
+                    const cx = beatX(layout.startX, matched.start, matched.duration)
                     const cy = staffPosToY(selectedStaffPos)
                     return (
                         <Rect
@@ -465,7 +470,7 @@ function StaffNotationComponent({
                 {measureLayout.map((layout) => {
                     const notes = layout.measure.notes || []
                     return notes.map((note, ni) => {
-                        const cx = beatX(layout.startX, note.start)
+                        const cx = beatX(layout.startX, note.start, note.duration)
                         const staffPos = pitchToStaffPosition(note.pitch)
                         const cy = staffPosToY(staffPos)
                         const appearance = getNoteAppearance(note.duration)
