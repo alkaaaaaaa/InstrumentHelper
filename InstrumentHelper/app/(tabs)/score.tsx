@@ -323,17 +323,22 @@ function StaffNotationView({ onBack, initialScore, scoreId }: { onBack: () => vo
     const handleAnalyze = useCallback(async () => {
         setAnalyzing(true)
         setChordAnnotations([])
-        type BeatGroup = { measureIndex: number; beat: number; notes: Note[] }
+        type BeatGroup = { measureIndex: number; beat: number; clef: StaffClef; notes: Note[] }
         const groups: BeatGroup[] = []
         for (const m of score.measures) {
-            const beatMap = new Map<number, Note[]>()
+            const beatMap = new Map<number, Map<StaffClef, Note[]>>()
             for (const n of m.notes || []) {
-                if (!beatMap.has(n.start)) beatMap.set(n.start, [])
-                beatMap.get(n.start)!.push(n)
+                const clef = getNoteClef(n)
+                if (!beatMap.has(n.start)) beatMap.set(n.start, new Map<StaffClef, Note[]>())
+                const clefMap = beatMap.get(n.start)!
+                if (!clefMap.has(clef)) clefMap.set(clef, [])
+                clefMap.get(clef)!.push(n)
             }
-            for (const [beat, notes] of beatMap) {
-                if (notes.length >= 2) {
-                    groups.push({ measureIndex: m.index, beat, notes })
+            for (const [beat, clefMap] of beatMap) {
+                for (const [clef, notes] of clefMap) {
+                    if (notes.length >= 2) {
+                        groups.push({ measureIndex: m.index, beat, clef, notes })
+                    }
                 }
             }
         }
@@ -345,10 +350,21 @@ function StaffNotationView({ onBack, initialScore, scoreId }: { onBack: () => vo
                     tuning: score.tuning ?? DEFAULT_TUNING,
                 })
                 if (res.type !== "unknown") {
-                    results.push({ measureIndex: g.measureIndex, beat: g.beat, label: res.name })
+                    results.push({
+                        measureIndex: g.measureIndex,
+                        beat: g.beat,
+                        clef: g.clef,
+                        label: res.name,
+                    })
                 }
             } catch { }
         }
+        const clefPriority: Record<StaffClef, number> = { bass: 0, treble: 1 }
+        results.sort((a, b) => {
+            if (a.measureIndex !== b.measureIndex) return a.measureIndex - b.measureIndex
+            if (a.beat !== b.beat) return a.beat - b.beat
+            return clefPriority[a.clef] - clefPriority[b.clef]
+        })
         setChordAnnotations(results)
         setAnalyzing(false)
         if (results.length === 0) {
@@ -595,11 +611,21 @@ function StaffNotationView({ onBack, initialScore, scoreId }: { onBack: () => vo
                         const measureX = measureStartXs[ann.measureIndex]
                         if (measureX == null || canvasHeight === 0) return null
                         const cx = measureX + ann.beat * BEAT_WIDTH + BEAT_WIDTH / 2
+                        const sameBeatAnnotations = chordAnnotations.filter(
+                            item => item.measureIndex === ann.measureIndex && item.beat === ann.beat
+                        )
+                        const sortedSameBeat = [...sameBeatAnnotations].sort((a, b) => {
+                            const priority: Record<StaffClef, number> = { bass: 0, treble: 1 }
+                            return priority[a.clef] - priority[b.clef]
+                        })
+                        const rowIndex = sortedSameBeat.findIndex(
+                            item => item.clef === ann.clef && item.label === ann.label
+                        )
                         // 标注位置：canvas 顶部往下约 8px（五线谱第5线上方）
-                        const labelTop = 8
+                        const labelTop = 8 + (rowIndex >= 0 ? rowIndex : 0) * 20
                         return (
                             <View
-                                key={`chord-${ann.measureIndex}-${ann.beat}`}
+                                key={`chord-${ann.measureIndex}-${ann.beat}-${ann.clef}`}
                                 pointerEvents="none"
                                 style={{
                                     position: "absolute",
@@ -612,7 +638,7 @@ function StaffNotationView({ onBack, initialScore, scoreId }: { onBack: () => vo
                                 }}
                             >
                                 <Text style={{ color: "#6366f1", fontSize: 11, fontWeight: "600" }}>
-                                    {ann.label}
+                                    {ann.clef === "bass" ? `低音: ${ann.label}` : `高音: ${ann.label}`}
                                 </Text>
                             </View>
                         )

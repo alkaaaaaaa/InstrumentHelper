@@ -164,6 +164,7 @@ type SelectedNote = {
 export type ChordAnnotation = {
     measureIndex: number
     beat: number
+    clef: "treble" | "bass"
     label: string
 }
 
