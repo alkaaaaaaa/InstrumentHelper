@@ -10,7 +10,7 @@ import {
     useFont,
     vec,
 } from "@shopify/react-native-skia"
-import { Pressable, View } from "react-native"
+import { View } from "react-native"
 import { Measure, Note, TimeSignature } from "../../models/Score"
 
 // ─── 布局常量 ───
@@ -148,6 +148,7 @@ function getNoteAppearance(duration: number): NoteAppearance {
 type SelectedNote = {
     measureIndex: number
     beat: number
+    staffPos?: number  // 点击时从 Y 坐标换算出的谱线位置
 }
 
 export type ChordAnnotation = {
@@ -257,10 +258,18 @@ function StaffNotationComponent({
         return measureStartX + beat * BEAT_WIDTH + BEAT_WIDTH / 2
     }, [])
 
-    // 处理点击
+    // 用于在 handlePress 中将 locationY 换算成 staffPos
+    const firstLineYRef = useRef(0)
+    firstLineYRef.current = staffPosToY(0)  // staffPos=0 对应第一线(E4)
+
+    // 处理点击：同时捕获 X(beat) 和 Y(staffPos)
+    // 使用 Responder 系统（onResponderGrant），其 nativeEvent 在 web/native 均有 locationX/locationY
     const handlePress = useCallback((evt: any) => {
         if (!onNoteSelect) return
-        const locationX: number | undefined = evt?.nativeEvent?.locationX
+        const ne = evt?.nativeEvent
+        // locationX/locationY 来自 Responder 系统（web 上映射自 offsetX/offsetY）
+        const locationX: number | undefined = ne?.locationX ?? ne?.offsetX
+        const locationY: number | undefined = ne?.locationY ?? ne?.offsetY
         if (locationX == null) return
 
         for (const layout of measureLayoutRef.current) {
@@ -270,12 +279,16 @@ function StaffNotationComponent({
                 const beat = Math.floor(relX / BEAT_WIDTH)
                 if (beat < 0 || beat >= layout.beatSpan) return
 
+                // 将 Y 坐标换算为最近的谱线位置
+                const staffPos = locationY != null
+                    ? Math.round((firstLineYRef.current - locationY) / HALF_STEP)
+                    : undefined
+
                 onNoteSelect({
                     measureIndex: layout.measure.index,
                     beat,
+                    staffPos,
                 })
-                // 点击后主动 blur，防止 Pressable 持续持有焦点并拦截 Enter 键
-                ;(evt?.target as HTMLElement | undefined)?.blur?.()
                 return
             }
         }
@@ -284,9 +297,8 @@ function StaffNotationComponent({
     if (height === 0) return null
 
     return (
-        <View style={{ width: totalWidth }}>
-            <Pressable onPress={handlePress} style={{ width: totalWidth, height: totalHeight }}>
-                <Canvas style={{ width: totalWidth, height: totalHeight }}>
+        <View style={{ width: totalWidth, position: "relative" }}>
+            <Canvas style={{ width: totalWidth, height: totalHeight }}>
                 {/* key 随每次渲染递增，强制 Skia 销毁并重建所有子节点，保证完整重绘 */}
                 <Group key={renderTickRef.current}>
                 {/* ─── 高音谱号标记 ─── */}
@@ -416,6 +428,30 @@ function StaffNotationComponent({
                     )
                 })()}
 
+                {/* ─── 被选中音符的小高亮框（点击位置有音符时显示） ─── */}
+                {selectedNote && selectedStaffPos !== undefined && (() => {
+                    const layout = measureLayout.find(l => l.measure.index === selectedNote.measureIndex)
+                    if (!layout) return null
+                    const notes = layout.measure.notes || []
+                    const matched = notes.find(
+                        n => n.start === selectedNote.beat && pitchToStaffPosition(n.pitch) === selectedStaffPos
+                    )
+                    if (!matched) return null
+                    const cx = beatX(layout.startX, matched.start)
+                    const cy = staffPosToY(selectedStaffPos)
+                    return (
+                        <Rect
+                            x={cx - NOTE_HEAD_RX - 5}
+                            y={cy - NOTE_HEAD_RY - 5}
+                            width={NOTE_HEAD_RX * 2 + 10}
+                            height={NOTE_HEAD_RY * 2 + 10}
+                            color="rgba(59, 130, 246, 0.75)"
+                            style="stroke"
+                            strokeWidth={2}
+                        />
+                    )
+                })()}
+
                 {/* ─── 音符渲染 ─── */}
                 {measureLayout.map((layout) => {
                     const notes = layout.measure.notes || []
@@ -523,7 +559,22 @@ function StaffNotationComponent({
                 })}
                 </Group>
                 </Canvas>
-            </Pressable>
+            {/* 透明遮罩层：绝对定位在 Canvas 上方接收点击。
+                使用 Responder 系统而非 Pressable.onPress，
+                因为后者在 web 上的 nativeEvent 缺少 locationX/locationY。 */}
+            <View
+                onStartShouldSetResponder={() => true}
+                onResponderGrant={handlePress}
+                style={{
+                    position: "absolute",
+                    top: 0,
+                    left: 0,
+                    width: totalWidth,
+                    height: totalHeight,
+                    // @ts-ignore — web-only，让鼠标显示为指针
+                    cursor: "pointer",
+                }}
+            />
         </View>
     )
 }

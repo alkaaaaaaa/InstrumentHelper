@@ -129,9 +129,8 @@ export function useScorePlayer(score: Score) {
 
         setPlaybackState("playing")
 
-        // 如果是暂停后恢复，从当前位置继续
-        const startIdx = playbackStateRef.current === "paused" ? eventIndexRef.current : 0
-        // 需要在 setState 回调后才能读到 "playing"，所以直接设置 ref
+        // 从 eventIndexRef 指向的位置开始（stop 重置为 0，seekTo 更新到目标位置，pause 保留当前位置）
+        const startIdx = eventIndexRef.current
         playbackStateRef.current = "playing"
 
         playBeatSequence(events, startIdx)
@@ -165,6 +164,28 @@ export function useScorePlayer(score: Score) {
         }
     }, [playbackState, play, pause])
 
+    /**
+     * 跳转到指定小节和拍位置。
+     * - 若正在播放，立即从该位置继续播放。
+     * - 若暂停或停止，更新光标位置，下次播放从此处开始。
+     */
+    const seekTo = useCallback((measureIndex: number, beat: number) => {
+        const events = buildBeatEvents(score)
+        const idx = events.findIndex(e => e.measureIndex === measureIndex && e.beat === beat)
+        if (idx < 0) return
+
+        eventIndexRef.current = idx
+        setCurrentPosition({ measureIndex, beat })
+
+        if (playbackStateRef.current === "playing") {
+            if (timerRef.current) {
+                clearTimeout(timerRef.current)
+                timerRef.current = null
+            }
+            playBeatSequence(events, idx)
+        }
+    }, [score, playBeatSequence])
+
     return {
         playbackState,
         currentPosition,
@@ -172,5 +193,6 @@ export function useScorePlayer(score: Score) {
         pause,
         stop,
         togglePlayPause,
+        seekTo,
     }
 }

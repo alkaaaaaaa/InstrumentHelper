@@ -22,6 +22,7 @@ type ScoreMode = "menu" | "staff" | "tab"
 type SelectedStaffNote = {
     measureIndex: number
     beat: number
+    staffPos?: number  // 点击时从 Y 坐标换算的谱线位置
 }
 
 // 计算六线谱小节中已占用的总时值（按拍计）
@@ -69,7 +70,7 @@ function StaffNotationView({ onBack, initialScore, scoreId }: { onBack: () => vo
     const [chordAnnotations, setChordAnnotations] = useState<ChordAnnotation[]>([])
     const [analyzing, setAnalyzing] = useState(false)
 
-    const { playbackState, currentPosition, play, pause, stop, togglePlayPause } = useScorePlayer(score)
+    const { playbackState, currentPosition, play, pause, stop, togglePlayPause, seekTo } = useScorePlayer(score)
     const scrollViewRef = useRef<ScrollView>(null)
     const [canvasHeight, setCanvasHeight] = useState(0)
 
@@ -113,7 +114,12 @@ function StaffNotationView({ onBack, initialScore, scoreId }: { onBack: () => vo
 
     const handleNoteSelect = useCallback((note: SelectedStaffNote) => {
         setSelectedNote(note)
-    }, [])
+        seekTo(note.measureIndex, note.beat)
+        // 同步竖向光标（幽灵音符/小高亮的音高位置）
+        if (note.staffPos !== undefined) {
+            setSelectedStaffPos(note.staffPos)
+        }
+    }, [seekTo])
 
     const handleNoteInput = useCallback((pitch: string, duration: number) => {
         if (!selectedNote) return
