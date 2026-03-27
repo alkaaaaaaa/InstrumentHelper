@@ -1,5 +1,6 @@
 export type Note = {
     pitch: string        // e.g. "E4"
+    clef?: "treble" | "bass" // 所属谱号（可选；旧数据缺失时按音高推断）
     string?: number      // 吉他弦（可选）1-6, 1=高音e, 6=低音E
     fret?: number        // 品位 0-24
     start: number        // 拍位置（第几拍，从0开始）

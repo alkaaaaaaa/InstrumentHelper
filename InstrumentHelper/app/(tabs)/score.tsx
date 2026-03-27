@@ -100,7 +100,51 @@ type ScoreMode = "menu" | "staff" | "tab"
 type SelectedStaffNote = {
     measureIndex: number
     beat: number
+    clef?: StaffClef
     staffPos?: number  // 点击时从 Y 坐标换算的谱线位置
+}
+
+type StaffClef = "treble" | "bass"
+const CLEF_SPLIT_POS = -2
+const NOTE_NAME_POSITION: Record<string, number> = {
+    "C": 0,
+    "D": 1,
+    "E": 2,
+    "F": 3,
+    "G": 4,
+    "A": 5,
+    "B": 6,
+}
+
+function parsePitch(pitch: string): { noteName: string; octave: number } | null {
+    const match = pitch.match(/^([A-G])(#|b)?(\d+)$/)
+    if (!match) return null
+    return {
+        noteName: match[1],
+        octave: parseInt(match[3], 10),
+    }
+}
+
+function pitchToStaffPosition(pitch: string): number {
+    const parsed = parsePitch(pitch)
+    if (!parsed) return 0
+    const notePos = NOTE_NAME_POSITION[parsed.noteName]
+    if (notePos === undefined) return 0
+    const absolutePos = parsed.octave * 7 + notePos
+    const refAbsolutePos = 4 * 7 + NOTE_NAME_POSITION["E"] // E4
+    return absolutePos - refAbsolutePos
+}
+
+function getClefForStaffPos(staffPos: number): StaffClef {
+    return staffPos >= CLEF_SPLIT_POS ? "treble" : "bass"
+}
+
+function getClefForPitch(pitch: string): StaffClef {
+    return getClefForStaffPos(pitchToStaffPosition(pitch))
+}
+
+function getNoteClef(note: Note): StaffClef {
+    return note.clef ?? getClefForPitch(note.pitch)
 }
 
 // 计算六线谱小节中已占用的总时值（按拍计）
@@ -191,30 +235,33 @@ function StaffNotationView({ onBack, initialScore, scoreId }: { onBack: () => vo
     const beatsPerMeasure = score.timeSignature.beats
 
     const handleNoteSelect = useCallback((note: SelectedStaffNote) => {
-        setSelectedNote(note)
+        const resolvedClef: StaffClef = note.clef ?? getClefForStaffPos(note.staffPos ?? selectedStaffPos)
+        setSelectedNote({ ...note, clef: resolvedClef })
         seekTo(note.measureIndex, note.beat)
         // 同步竖向光标（幽灵音符/小高亮的音高位置）
         if (note.staffPos !== undefined) {
             setSelectedStaffPos(note.staffPos)
         }
-    }, [seekTo])
+    }, [seekTo, selectedStaffPos])
 
     const handleNoteInput = useCallback((pitch: string, duration: number) => {
         if (!selectedNote) return
+        const activeClef = selectedNote.clef ?? getClefForStaffPos(selectedStaffPos)
 
         setScore(prev => {
             const newMeasures = prev.measures.map(m => {
                 if (m.index !== selectedNote.measureIndex) return m
 
                 const notes = [...m.notes]
-                // 移除同一拍位置的同音高音符（替换）
+                // 分谱表编辑：只替换当前谱表同一拍同音高音符
                 const filtered = notes.filter(
-                    n => !(n.start === selectedNote.beat && n.pitch === pitch)
+                    n => !(n.start === selectedNote.beat && n.pitch === pitch && getNoteClef(n) === activeClef)
                 )
                 const newNote: Note = {
                     pitch,
                     start: selectedNote.beat,
                     duration,
+                    clef: activeClef,
                 }
                 filtered.push(newNote)
                 // 按 start 排序
@@ -224,7 +271,7 @@ function StaffNotationView({ onBack, initialScore, scoreId }: { onBack: () => vo
             return { ...prev, measures: newMeasures }
         })
         // 不再自动前进光标，保持在当前拍位
-    }, [selectedNote])
+    }, [selectedNote, selectedStaffPos])
 
     // Refs 持有最新值，供 keydown 处理器读取，避免 stale closure 导致 Enter 随机失效
     const selectedStaffPosRef = useRef(selectedStaffPos)
@@ -238,16 +285,20 @@ function StaffNotationView({ onBack, initialScore, scoreId }: { onBack: () => vo
 
     const handleDelete = useCallback(() => {
         if (!selectedNote) return
+        const activeClef = selectedNote.clef ?? getClefForStaffPos(selectedStaffPos)
 
         setScore(prev => {
             const newMeasures = prev.measures.map(m => {
                 if (m.index !== selectedNote.measureIndex) return m
-                const notes = m.notes.filter(n => n.start !== selectedNote.beat)
+                // 分谱表删除：只删除当前谱表当前拍位音符
+                const notes = m.notes.filter(
+                    n => !(n.start === selectedNote.beat && getNoteClef(n) === activeClef)
+                )
                 return { ...m, notes }
             })
             return { ...prev, measures: newMeasures }
         })
-    }, [selectedNote])
+    }, [selectedNote, selectedStaffPos])
 
     const handleAddMeasure = useCallback(() => {
         setScore(prev => {
@@ -301,14 +352,15 @@ function StaffNotationView({ onBack, initialScore, scoreId }: { onBack: () => vo
         setSelectedNote(prev => {
             let next: SelectedStaffNote | null = null
             const step = currentDurationRef.current
+            const activeClef = prev?.clef ?? getClefForStaffPos(selectedStaffPosRef.current)
             if (!prev) {
-                next = { measureIndex: 0, beat: 0 }
+                next = { measureIndex: 0, beat: 0, clef: "treble" }
             } else if (prev.beat > 0) {
                 const newBeat = Math.round((prev.beat - step) * 10000) / 10000
                 next = { ...prev, beat: Math.max(0, newBeat) }
             } else if (prev.measureIndex > 0) {
                 const prevMeasure = score.measures.find(m => m.index === prev.measureIndex - 1)
-                const prevNotes = prevMeasure?.notes || []
+                const prevNotes = (prevMeasure?.notes || []).filter(n => getNoteClef(n) === activeClef)
                 // 跳到上一小节最后一个音符的起始位置
                 const targetBeat = prevNotes.length > 0
                     ? Math.max(...prevNotes.map(n => n.start))
@@ -326,13 +378,14 @@ function StaffNotationView({ onBack, initialScore, scoreId }: { onBack: () => vo
 
     const handleMoveRight = useCallback(() => {
         if (!selectedNote) {
-            setSelectedNote({ measureIndex: 0, beat: 0 })
+            setSelectedNote({ measureIndex: 0, beat: 0, clef: "treble" })
             seekTo(0, 0)
             return
         }
         const step = currentDurationRef.current
+        const activeClef = selectedNote.clef ?? getClefForStaffPos(selectedStaffPosRef.current)
         const currentMeasure = score.measures.find(m => m.index === selectedNote.measureIndex)
-        const notes = currentMeasure?.notes || []
+        const notes = (currentMeasure?.notes || []).filter(n => getNoteClef(n) === activeClef)
         const maxNoteEnd = notes.length > 0
             ? Math.max(...notes.map(n => n.start + n.duration))
             : 0
@@ -348,7 +401,7 @@ function StaffNotationView({ onBack, initialScore, scoreId }: { onBack: () => vo
         }
         // 跳到下一个已有小节
         if (selectedNote.measureIndex < score.measures.length - 1) {
-            const next = { measureIndex: selectedNote.measureIndex + 1, beat: 0 }
+                const next = { measureIndex: selectedNote.measureIndex + 1, beat: 0, clef: activeClef as StaffClef }
             setSelectedNote(next)
             seekTo(next.measureIndex, next.beat)
             return
@@ -359,7 +412,7 @@ function StaffNotationView({ onBack, initialScore, scoreId }: { onBack: () => vo
             ...prev,
             measures: [...prev.measures, { index: prev.measures.length, notes: [], tabNotes: [] }],
         }))
-        setSelectedNote({ measureIndex: newIndex, beat: 0 })
+        setSelectedNote({ measureIndex: newIndex, beat: 0, clef: activeClef })
         seekTo(newIndex, 0)
     }, [beatsPerMeasure, score.measures, selectedNote, seekTo])
 
@@ -379,9 +432,17 @@ function StaffNotationView({ onBack, initialScore, scoreId }: { onBack: () => vo
             } else if (e.key === "ArrowRight") {
                 handleMoveRight()
             } else if (e.key === "ArrowUp") {
-                setSelectedStaffPos(prev => Math.min(prev + 1, 16))
+                const activeClef = selectedNote?.clef ?? getClefForStaffPos(selectedStaffPosRef.current)
+                setSelectedStaffPos(prev => {
+                    if (activeClef === "treble") return Math.min(prev + 1, 16)
+                    return Math.min(prev + 1, -6)
+                })
             } else if (e.key === "ArrowDown") {
-                setSelectedStaffPos(prev => Math.max(prev - 1, -8))
+                const activeClef = selectedNote?.clef ?? getClefForStaffPos(selectedStaffPosRef.current)
+                setSelectedStaffPos(prev => {
+                    if (activeClef === "treble") return Math.max(prev - 1, -8)
+                    return Math.max(prev - 1, -20)
+                })
             } else if (e.key === "Enter") {
                 // 通过 ref 读取最新值，避免 stale closure
                 const pitch = staffPositionToPitch(selectedStaffPosRef.current, currentAccidentalRef.current)

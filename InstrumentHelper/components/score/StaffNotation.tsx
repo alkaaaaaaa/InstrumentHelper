@@ -29,6 +29,10 @@ const STEM_WIDTH = 1.5
 const LEDGER_LINE_HALF = 12       // 加线半宽
 const NOTE_FONT_SIZE = 14
 const CLEF_FONT_SIZE = 36
+const GRAND_STAFF_GAP = 36
+const TREBLE_FIRST_LINE_POS = 0
+const BASS_FIRST_LINE_POS = -12
+const CLEF_SPLIT_POS = -2
 
 // 颜色
 const LINE_COLOR = "#9ca3af"
@@ -113,20 +117,25 @@ function pitchToStaffPosition(pitch: string): number {
  * 判断某个位置是否需要加线
  * 返回需要绘制的加线位置数组
  */
-function getLedgerLines(staffPos: number): number[] {
+function getLedgerLines(staffPos: number, firstLinePos: number): number[] {
     const lines: number[] = []
-    if (staffPos < 0) {
-        // 下加线：位置 -2, -4, -6 ... (即 D4, C4 下方的线, B3 ...)
-        for (let p = -2; p >= staffPos; p -= 2) {
+    const topLinePos = firstLinePos + 8
+    if (staffPos < firstLinePos) {
+        // 下加线：位置 firstLinePos-2, firstLinePos-4 ...
+        for (let p = firstLinePos - 2; p >= staffPos; p -= 2) {
             lines.push(p)
         }
-    } else if (staffPos > 8) {
-        // 上加线：位置 10, 12, 14 ... (即 G5 上方)
-        for (let p = 10; p <= staffPos; p += 2) {
+    } else if (staffPos > topLinePos) {
+        // 上加线：位置 topLinePos+2, topLinePos+4 ...
+        for (let p = topLinePos + 2; p <= staffPos; p += 2) {
             lines.push(p)
         }
     }
     return lines
+}
+
+function getClefForStaffPos(staffPos: number): "treble" | "bass" {
+    return staffPos >= CLEF_SPLIT_POS ? "treble" : "bass"
 }
 
 // 音符时值对应的显示方式
@@ -148,6 +157,7 @@ function getNoteAppearance(duration: number): NoteAppearance {
 type SelectedNote = {
     measureIndex: number
     beat: number
+    clef?: "treble" | "bass"
     staffPos?: number  // 点击时从 Y 坐标换算出的谱线位置
 }
 
@@ -241,27 +251,42 @@ function StaffNotationComponent({
     const visualWidth = measureLayout.reduce((sum, l) => sum + l.width, LEFT_MARGIN) + RIGHT_MARGIN
     const totalWidth = Math.max(stableWidth, visualWidth)
     const staffHeight = (STAFF_LINE_COUNT - 1) * LINE_SPACING
+    const grandStaffHeight = staffHeight * 2 + GRAND_STAFF_GAP
     const totalHeight = height
 
-    // 五线谱垂直居中：staffTopY 是第5线（最高线）的 Y 坐标
+    // 双谱表垂直居中：trebleTopY / bassTopY 都是各自第5线（最高线）的 Y 坐标
     // 留出底部标注区域（NOTE_FONT_SIZE + LABEL_BOTTOM_PADDING），剩余空间居中
     const labelAreaHeight = NOTE_FONT_SIZE + LABEL_BOTTOM_PADDING + 8
     const availableHeight = totalHeight - labelAreaHeight
-    const staffTopY = Math.max(20, (availableHeight - staffHeight) / 2)
+    const trebleTopY = Math.max(20, (availableHeight - grandStaffHeight) / 2)
+    const bassTopY = trebleTopY + staffHeight + GRAND_STAFF_GAP
 
-    // 五线谱第 N 线的 Y 坐标（从上到下：第5线、第4线...第1线）
-    // 第1线在下方，第5线在上方
-    const staffLineY = useCallback((lineNum: number) => {
+    // 指定谱表第 N 线的 Y 坐标（从上到下：第5线、第4线...第1线）
+    const staffLineY = useCallback((lineNum: number, staffTop: number) => {
         // lineNum: 1(底线) ~ 5(顶线)
-        return staffTopY + staffHeight - (lineNum - 1) * LINE_SPACING
-    }, [staffHeight, staffTopY])
+        return staffTop + staffHeight - (lineNum - 1) * LINE_SPACING
+    }, [staffHeight])
 
-    // 将五线谱位置转换为 Y 坐标
-    // staffPos=0 对应第一线(E4)
-    const staffPosToY = useCallback((staffPos: number) => {
-        const firstLineY = staffLineY(1)
-        return firstLineY - staffPos * HALF_STEP
-    }, [staffLineY])
+    const trebleLineY = useCallback((lineNum: number) => {
+        return staffLineY(lineNum, trebleTopY)
+    }, [staffLineY, trebleTopY])
+
+    const bassLineY = useCallback((lineNum: number) => {
+        return staffLineY(lineNum, bassTopY)
+    }, [staffLineY, bassTopY])
+
+    const trebleFirstLineY = useMemo(() => trebleLineY(1), [trebleLineY])
+    const bassFirstLineY = useMemo(() => bassLineY(1), [bassLineY])
+
+    // 双谱表的音高位置到 Y 映射：
+    // 高音谱号以 E4(pos=0) 为第一线；低音谱号以 G2(pos=-12) 为第一线
+    const staffPosToY = useCallback((staffPos: number, clef?: "treble" | "bass") => {
+        const targetClef = clef ?? getClefForStaffPos(staffPos)
+        if (targetClef === "treble") {
+            return trebleFirstLineY - (staffPos - TREBLE_FIRST_LINE_POS) * HALF_STEP
+        }
+        return bassFirstLineY - (staffPos - BASS_FIRST_LINE_POS) * HALF_STEP
+    }, [trebleFirstLineY, bassFirstLineY])
 
     // 拍的 X 坐标（符头中心）
     // slotSize：该拍位占用的时值宽度（四分=1, 八分=0.5...），用于将符头居中在自身时值槽内
@@ -270,8 +295,10 @@ function StaffNotationComponent({
     }, [])
 
     // 用于在 handlePress 中将 locationY 换算成 staffPos
-    const firstLineYRef = useRef(0)
-    firstLineYRef.current = staffPosToY(0)  // staffPos=0 对应第一线(E4)
+    const trebleFirstLineYRef = useRef(0)
+    const bassFirstLineYRef = useRef(0)
+    trebleFirstLineYRef.current = trebleFirstLineY
+    bassFirstLineYRef.current = bassFirstLineY
 
     // 处理点击：同时捕获 X(beat) 和 Y(staffPos)
     // 使用 Responder 系统（onResponderGrant），其 nativeEvent 在 web/native 均有 locationX/locationY
@@ -294,18 +321,28 @@ function StaffNotationComponent({
 
                 // 将 Y 坐标换算为最近的谱线位置
                 const staffPos = locationY != null
-                    ? Math.round((firstLineYRef.current - locationY) / HALF_STEP)
+                    ? (() => {
+                        const splitY = (trebleLineY(1) + bassLineY(5)) / 2
+                        if (locationY <= splitY) {
+                            return Math.round((trebleFirstLineYRef.current - locationY) / HALF_STEP + TREBLE_FIRST_LINE_POS)
+                        }
+                        return Math.round((bassFirstLineYRef.current - locationY) / HALF_STEP + BASS_FIRST_LINE_POS)
+                    })()
+                    : undefined
+                const clef: "treble" | "bass" | undefined = locationY != null
+                    ? ((locationY <= (trebleLineY(1) + bassLineY(5)) / 2) ? "treble" : "bass")
                     : undefined
 
                 onNoteSelect({
                     measureIndex: layout.measure.index,
                     beat,
+                    clef,
                     staffPos,
                 })
                 return
             }
         }
-    }, [onNoteSelect, noteResolution])
+    }, [onNoteSelect, noteResolution, trebleLineY, bassLineY])
 
     if (height === 0) return null
 
@@ -318,8 +355,17 @@ function StaffNotationComponent({
                 {clefFont && (
                     <SkiaText
                         x={10}
-                        y={staffLineY(3) + 6}
+                        y={trebleLineY(3) + 6}
                         text="G"
+                        font={clefFont}
+                        color="#6b7280"
+                    />
+                )}
+                {clefFont && (
+                    <SkiaText
+                        x={12}
+                        y={bassLineY(3) + 8}
+                        text="F"
                         font={clefFont}
                         color="#6b7280"
                     />
@@ -329,7 +375,7 @@ function StaffNotationComponent({
                 {font && (
                     <SkiaText
                         x={LEFT_MARGIN - 22}
-                        y={staffLineY(4) + NOTE_FONT_SIZE / 3}
+                        y={trebleLineY(4) + NOTE_FONT_SIZE / 3}
                         text={timeSignature.beats.toString()}
                         font={font}
                         color="#6b7280"
@@ -338,7 +384,25 @@ function StaffNotationComponent({
                 {font && (
                     <SkiaText
                         x={LEFT_MARGIN - 22}
-                        y={staffLineY(2) + NOTE_FONT_SIZE / 3}
+                        y={trebleLineY(2) + NOTE_FONT_SIZE / 3}
+                        text={timeSignature.beatValue.toString()}
+                        font={font}
+                        color="#6b7280"
+                    />
+                )}
+                {font && (
+                    <SkiaText
+                        x={LEFT_MARGIN - 22}
+                        y={bassLineY(4) + NOTE_FONT_SIZE / 3}
+                        text={timeSignature.beats.toString()}
+                        font={font}
+                        color="#6b7280"
+                    />
+                )}
+                {font && (
+                    <SkiaText
+                        x={LEFT_MARGIN - 22}
+                        y={bassLineY(2) + NOTE_FONT_SIZE / 3}
                         text={timeSignature.beatValue.toString()}
                         font={font}
                         color="#6b7280"
@@ -348,10 +412,23 @@ function StaffNotationComponent({
                 {/* ─── 五条线 ─── */}
                 {Array.from({ length: STAFF_LINE_COUNT }).map((_, i) => {
                     const lineNum = i + 1
-                    const y = staffLineY(lineNum)
+                    const y = trebleLineY(lineNum)
                     return (
                         <Line
-                            key={`staff-line-${i}`}
+                            key={`treble-staff-line-${i}`}
+                            p1={vec(LEFT_MARGIN, y)}
+                            p2={vec(totalWidth - RIGHT_MARGIN, y)}
+                            color={LINE_COLOR}
+                            strokeWidth={1}
+                        />
+                    )
+                })}
+                {Array.from({ length: STAFF_LINE_COUNT }).map((_, i) => {
+                    const lineNum = i + 1
+                    const y = bassLineY(lineNum)
+                    return (
+                        <Line
+                            key={`bass-staff-line-${i}`}
                             p1={vec(LEFT_MARGIN, y)}
                             p2={vec(totalWidth - RIGHT_MARGIN, y)}
                             color={LINE_COLOR}
@@ -365,15 +442,15 @@ function StaffNotationComponent({
                     <React.Fragment key={`barline-group-${i}`}>
                         {i === 0 && (
                             <Line
-                                p1={vec(layout.startX, staffLineY(5))}
-                                p2={vec(layout.startX, staffLineY(1))}
+                                p1={vec(layout.startX, trebleLineY(5))}
+                                p2={vec(layout.startX, bassLineY(1))}
                                 color={BARLINE_COLOR}
                                 strokeWidth={2}
                             />
                         )}
                         <Line
-                            p1={vec(layout.startX + layout.width, staffLineY(5))}
-                            p2={vec(layout.startX + layout.width, staffLineY(1))}
+                            p1={vec(layout.startX + layout.width, trebleLineY(5))}
+                            p2={vec(layout.startX + layout.width, bassLineY(1))}
                             color={BARLINE_COLOR}
                             strokeWidth={i === measureLayout.length - 1 ? 2 : 1}
                         />
@@ -387,18 +464,21 @@ function StaffNotationComponent({
                     if (!layout) return null
                     const slotW = noteResolution * BEAT_WIDTH
                     const cx = beatX(layout.startX, selectedNote.beat, noteResolution)
+                    const activeStaffPos = selectedStaffPos ?? selectedNote.staffPos ?? TREBLE_FIRST_LINE_POS
+                    const activeClef = selectedNote.clef ?? getClefForStaffPos(activeStaffPos)
+                    const highlightTop = activeClef === "treble" ? trebleLineY(5) : bassLineY(5)
                     return (
                         <Group>
                             <Rect
                                 x={cx - slotW / 2 + 4}
-                                y={staffLineY(5) - 10}
+                                y={highlightTop - 10}
                                 width={slotW - 8}
                                 height={staffHeight + 20}
                                 color={SELECTED_COLOR}
                             />
                             <Rect
                                 x={cx - slotW / 2 + 4}
-                                y={staffLineY(5) - 10}
+                                y={highlightTop - 10}
                                 width={slotW - 8}
                                 height={staffHeight + 20}
                                 color={SELECTED_BORDER}
@@ -414,12 +494,14 @@ function StaffNotationComponent({
                     const layout = measureLayout.find(l => l.measure.index === selectedNote.measureIndex)
                     if (!layout) return null
                     const cx = beatX(layout.startX, selectedNote.beat, noteResolution)
-                    const cy = staffPosToY(selectedStaffPos)
-                    const ghostLedger = getLedgerLines(selectedStaffPos)
+                    const clef = selectedNote.clef ?? getClefForStaffPos(selectedStaffPos)
+                    const cy = staffPosToY(selectedStaffPos, clef)
+                    const firstLinePos = clef === "treble" ? TREBLE_FIRST_LINE_POS : BASS_FIRST_LINE_POS
+                    const ghostLedger = getLedgerLines(selectedStaffPos, firstLinePos)
                     return (
                         <Group>
                             {ghostLedger.map((lp) => {
-                                const ly = staffPosToY(lp)
+                                const ly = staffPosToY(lp, clef)
                                 return (
                                     <Line
                                         key={`ghost-ledger-${lp}`}
@@ -447,12 +529,15 @@ function StaffNotationComponent({
                     const layout = measureLayout.find(l => l.measure.index === selectedNote.measureIndex)
                     if (!layout) return null
                     const notes = layout.measure.notes || []
+                    const activeClef = selectedNote.clef ?? getClefForStaffPos(selectedStaffPos)
                     const matched = notes.find(
-                        n => n.start === selectedNote.beat && pitchToStaffPosition(n.pitch) === selectedStaffPos
+                        n => n.start === selectedNote.beat
+                            && pitchToStaffPosition(n.pitch) === selectedStaffPos
+                            && (n.clef ?? getClefForStaffPos(pitchToStaffPosition(n.pitch))) === activeClef
                     )
                     if (!matched) return null
                     const cx = beatX(layout.startX, matched.start, matched.duration)
-                    const cy = staffPosToY(selectedStaffPos)
+                    const cy = staffPosToY(selectedStaffPos, activeClef)
                     return (
                         <Rect
                             x={cx - NOTE_HEAD_RX - 5}
@@ -472,20 +557,23 @@ function StaffNotationComponent({
                     return notes.map((note, ni) => {
                         const cx = beatX(layout.startX, note.start, note.duration)
                         const staffPos = pitchToStaffPosition(note.pitch)
-                        const cy = staffPosToY(staffPos)
+                        const noteClef = note.clef ?? getClefForStaffPos(staffPos)
+                        const cy = staffPosToY(staffPos, noteClef)
                         const appearance = getNoteAppearance(note.duration)
-                        const ledgerLines = getLedgerLines(staffPos)
+                        const firstLinePos = noteClef === "treble" ? TREBLE_FIRST_LINE_POS : BASS_FIRST_LINE_POS
+                        const ledgerLines = getLedgerLines(staffPos, firstLinePos)
                         const parsed = parsePitch(note.pitch)
                         const accidental = parsed?.accidental || ""
 
-                        // 符杆方向：位置在第三线(B4, pos=4)以上朝下，以下朝上
-                        const stemUp = staffPos < 4
+                        // 符杆方向：对应谱表第三线以上朝下，以下朝上
+                        const stemPivotPos = firstLinePos + 4
+                        const stemUp = staffPos < stemPivotPos
 
                         return (
                             <Group key={`note-${layout.measure.index}-${ni}`}>
                                 {/* 加线 */}
                                 {ledgerLines.map((lp) => {
-                                    const ly = staffPosToY(lp)
+                                    const ly = staffPosToY(lp, noteClef)
                                     return (
                                         <Line
                                             key={`ledger-${layout.measure.index}-${ni}-${lp}`}
