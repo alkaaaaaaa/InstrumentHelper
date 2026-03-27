@@ -176,6 +176,9 @@ function getTabMeasureBeatSpan(tabNotes: TabNote[] | undefined): number {
     return Math.max(1, Math.ceil(maxNoteEnd))
 }
 
+const BPM_MIN = 40
+const BPM_MAX = 240
+
 const emptyScore: ScoreType = {
     bpm: 120,
     timeSignature: { beats: 4, beatValue: 4 },
@@ -241,6 +244,13 @@ function StaffNotationView({ onBack, initialScore, scoreId }: { onBack: () => vo
     }, [score, currentScoreId])
 
     const beatsPerMeasure = score.timeSignature.beats
+
+    const handleBpmDelta = useCallback((delta: number) => {
+        setScore(prev => {
+            const next = Math.max(BPM_MIN, Math.min(BPM_MAX, prev.bpm + delta))
+            return { ...prev, bpm: next }
+        })
+    }, [])
 
     const handleNoteSelect = useCallback((note: SelectedStaffNote) => {
         const resolvedClef: StaffClef = note.clef ?? getClefForStaffPos(note.staffPos ?? selectedStaffPos)
@@ -547,7 +557,23 @@ function StaffNotationView({ onBack, initialScore, scoreId }: { onBack: () => vo
                     >
                         <Text style={styles.stopBtnText}>⏹ 停止</Text>
                     </TouchableOpacity>
-                    <Text style={styles.bpmText}>{score.bpm} BPM</Text>
+                    <View style={styles.bpmControl}>
+                        <TouchableOpacity
+                            style={[styles.bpmBtn, score.bpm <= BPM_MIN && styles.bpmBtnDisabled]}
+                            onPress={() => handleBpmDelta(-5)}
+                            disabled={score.bpm <= BPM_MIN}
+                        >
+                            <Text style={styles.bpmBtnText}>-</Text>
+                        </TouchableOpacity>
+                        <Text style={styles.bpmText}>{score.bpm} BPM</Text>
+                        <TouchableOpacity
+                            style={[styles.bpmBtn, score.bpm >= BPM_MAX && styles.bpmBtnDisabled]}
+                            onPress={() => handleBpmDelta(5)}
+                            disabled={score.bpm >= BPM_MAX}
+                        >
+                            <Text style={styles.bpmBtnText}>+</Text>
+                        </TouchableOpacity>
+                    </View>
                     <TouchableOpacity
                         style={[styles.analyzeBtn, analyzing && styles.analyzeBtnDisabled]}
                         onPress={(e) => {
@@ -730,6 +756,13 @@ function TabNotationEditor({ onBack, initialScore, scoreId }: { onBack: () => vo
     }, [score, currentScoreId])
 
     const beatsPerMeasure = score.timeSignature.beats
+
+    const handleBpmDelta = useCallback((delta: number) => {
+        setScore(prev => {
+            const next = Math.max(BPM_MIN, Math.min(BPM_MAX, prev.bpm + delta))
+            return { ...prev, bpm: next }
+        })
+    }, [])
 
     const handleCellSelect = useCallback((cell: SelectedCell) => {
         setSelectedCell(cell)
@@ -998,6 +1031,23 @@ function TabNotationEditor({ onBack, initialScore, scoreId }: { onBack: () => vo
                     {score.title || "未命名乐谱"}
                 </Text>
                 <View style={styles.playbackControls}>
+                    <View style={styles.bpmControl}>
+                        <TouchableOpacity
+                            style={[styles.bpmBtn, score.bpm <= BPM_MIN && styles.bpmBtnDisabled]}
+                            onPress={() => handleBpmDelta(-5)}
+                            disabled={score.bpm <= BPM_MIN}
+                        >
+                            <Text style={styles.bpmBtnText}>-</Text>
+                        </TouchableOpacity>
+                        <Text style={styles.bpmText}>{score.bpm} BPM</Text>
+                        <TouchableOpacity
+                            style={[styles.bpmBtn, score.bpm >= BPM_MAX && styles.bpmBtnDisabled]}
+                            onPress={() => handleBpmDelta(5)}
+                            disabled={score.bpm >= BPM_MAX}
+                        >
+                            <Text style={styles.bpmBtnText}>+</Text>
+                        </TouchableOpacity>
+                    </View>
                     <TouchableOpacity
                         style={styles.chordBtn}
                         onPress={() => setChordModalVisible(true)}
@@ -1272,6 +1322,28 @@ const styles = StyleSheet.create({
         color: "#6b7280",
         fontWeight: "500",
         marginLeft: 4,
+    },
+    bpmControl: {
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 6,
+    },
+    bpmBtn: {
+        width: 24,
+        height: 24,
+        borderRadius: 6,
+        backgroundColor: "#e5e7eb",
+        alignItems: "center",
+        justifyContent: "center",
+    },
+    bpmBtnDisabled: {
+        opacity: 0.45,
+    },
+    bpmBtnText: {
+        color: "#374151",
+        fontSize: 16,
+        fontWeight: "700",
+        lineHeight: 18,
     },
     placeholderContainer: {
         flex: 1,
