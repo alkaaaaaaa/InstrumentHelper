@@ -424,6 +424,17 @@ function StaffNotationView({ onBack, initialScore, scoreId }: { onBack: () => vo
             ? Math.max(...notes.map(n => n.start + n.duration))
             : 0
         const measureFull = maxNoteEnd >= beatsPerMeasure
+        const sortedStarts = Array.from(new Set(notes.map(n => Math.round(n.start * 10000) / 10000)))
+            .sort((a, b) => a - b)
+
+        // 优先跳到同小节中“下一个已存在音符起点”，避免已满小节时直接跨小节
+        const nextExistingStart = sortedStarts.find(start => start > selectedNote.beat + 0.0001)
+        if (nextExistingStart !== undefined) {
+            const next = { ...selectedNote, beat: nextExistingStart }
+            setSelectedNote(next)
+            seekTo(next.measureIndex, next.beat)
+            return
+        }
 
         // 小节未满：按当前时值步进，若下一位置仍在已有内容范围内则留在本小节
         const nextBeat = Math.round((selectedNote.beat + step) * 10000) / 10000
