@@ -495,7 +495,7 @@ function StaffNotationView({ onBack, initialScore, scoreId }: { onBack: () => vo
                 const activeClef = selectedNote?.clef ?? getClefForStaffPos(selectedStaffPosRef.current)
                 setSelectedStaffPos(prev => {
                     if (activeClef === "treble") return Math.min(prev + 1, 16)
-                    return Math.min(prev + 1, -6)
+                    return Math.min(prev + 1, -3)
                 })
             } else if (e.key === "ArrowDown") {
                 const activeClef = selectedNote?.clef ?? getClefForStaffPos(selectedStaffPosRef.current)
