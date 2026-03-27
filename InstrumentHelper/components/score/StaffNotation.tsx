@@ -227,9 +227,10 @@ function StaffNotationComponent({
     const renderTickRef = useRef(0)
     renderTickRef.current += 1
 
-    // 画布宽度由稳定布局决定 + beatsPerMeasure 的余量（足以容纳任何光标位置的扩展）
-    const totalWidth = stableMeasureLayout.reduce((sum, l) => sum + l.width, LEFT_MARGIN)
-        + beatsPerMeasure * BEAT_WIDTH + RIGHT_MARGIN
+    // 画布宽度取稳定布局和视觉布局（含光标扩展）的较大值，不额外添加空白缓冲
+    const stableWidth = stableMeasureLayout.reduce((sum, l) => sum + l.width, LEFT_MARGIN) + RIGHT_MARGIN
+    const visualWidth = measureLayout.reduce((sum, l) => sum + l.width, LEFT_MARGIN) + RIGHT_MARGIN
+    const totalWidth = Math.max(stableWidth, visualWidth)
     const staffHeight = (STAFF_LINE_COUNT - 1) * LINE_SPACING
     const totalHeight = height
 
