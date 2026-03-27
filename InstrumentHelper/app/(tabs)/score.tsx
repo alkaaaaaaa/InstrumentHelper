@@ -1,5 +1,6 @@
 import React, { useState, useCallback, useRef, useEffect, useMemo } from "react"
-import { View, ScrollView, StyleSheet, Text, TouchableOpacity, Alert, ActivityIndicator, FlatList, LayoutChangeEvent, Platform, Modal, TextInput } from "react-native"
+import { View, ScrollView, StyleSheet, Text, TouchableOpacity, Alert, ActivityIndicator, FlatList, LayoutChangeEvent, Platform, Modal, TextInput, Pressable } from "react-native"
+import { useRouter } from "expo-router"
 import { TabStaff } from "../../components/score/TabStaff"
 import { EditorToolbar } from "../../components/score/EditorToolbar"
 import { StaffNotation, BEAT_WIDTH, LEFT_MARGIN, STAFF_LINE_SPACING, staffPositionToPitch, ChordAnnotation } from "../../components/score/StaffNotation"
@@ -8,6 +9,18 @@ import { ChordScaleModal } from "../../components/score/ChordScaleModal"
 import { Measure, Note, TabNote, Score as ScoreType } from "../../models/Score"
 import { useScorePlayer } from "../../hooks/useScorePlayer"
 import { scoreApi, ScoreListItem } from "../../utils/api"
+import { CHORD_TEMPLATES } from "../../utils/chordLibrary"
+
+/** 把 "C Major"、"G Dom7" 这类后端 label 转成 chord symbol，如 "C"、"G7" */
+function labelToChordSymbol(label: string): string | null {
+    const spaceIdx = label.indexOf(" ")
+    if (spaceIdx === -1) return null
+    const root = label.slice(0, spaceIdx)
+    const templateKey = label.slice(spaceIdx + 1)
+    const template = CHORD_TEMPLATES.find((t) => t.key === templateKey)
+    if (!template) return null
+    return `${root}${template.suffix}`
+}
 
 // React Native Web 的 Alert.alert 是空实现，用 window.alert/confirm 替代
 function showAlert(title: string, message?: string) {
@@ -188,6 +201,7 @@ const emptyScore: ScoreType = {
 }
 
 function StaffNotationView({ onBack, initialScore, scoreId }: { onBack: () => void; initialScore?: ScoreType; scoreId?: string }) {
+    const router = useRouter()
     const [score, setScore] = useState<ScoreType>(initialScore || emptyScore)
     const [currentScoreId, setCurrentScoreId] = useState<string | undefined>(scoreId)
     const [saving, setSaving] = useState(false)
@@ -643,7 +657,7 @@ function StaffNotationView({ onBack, initialScore, scoreId }: { onBack: () => vo
                         selectedStaffPos={selectedStaffPos}
                         noteResolution={currentDuration}
                     />
-                    {/* 和弦标注：渲染为普通 View，不影响 Skia canvas，避免触发重渲染导致音符消失 */}
+                    {/* 和弦标注：可点击跳转到对应和弦详情页 */}
                     {chordAnnotations.map((ann) => {
                         const measureX = measureStartXs[ann.measureIndex]
                         if (measureX == null || canvasHeight === 0) return null
@@ -658,26 +672,34 @@ function StaffNotationView({ onBack, initialScore, scoreId }: { onBack: () => vo
                         const rowIndex = sortedSameBeat.findIndex(
                             item => item.clef === ann.clef && item.label === ann.label
                         )
-                        // 标注位置：canvas 顶部往下约 8px（五线谱第5线上方）
                         const labelTop = 8 + (rowIndex >= 0 ? rowIndex : 0) * 20
+                        const chordSymbol = labelToChordSymbol(ann.label)
                         return (
-                            <View
+                            <Pressable
                                 key={`chord-${ann.measureIndex}-${ann.beat}-${ann.clef}`}
-                                pointerEvents="none"
-                                style={{
+                                onPress={() => {
+                                    if (chordSymbol) {
+                                        router.push(`/chord/${encodeURIComponent(chordSymbol)}`)
+                                    }
+                                }}
+                                style={({ pressed }) => ({
                                     position: "absolute",
                                     left: cx - 30,
                                     top: labelTop,
-                                    backgroundColor: "rgba(99, 102, 241, 0.15)",
+                                    backgroundColor: pressed
+                                        ? "rgba(99, 102, 241, 0.35)"
+                                        : "rgba(99, 102, 241, 0.15)",
                                     borderRadius: 4,
                                     paddingHorizontal: 5,
                                     paddingVertical: 2,
-                                }}
+                                    borderWidth: chordSymbol ? 1 : 0,
+                                    borderColor: "rgba(99, 102, 241, 0.4)",
+                                })}
                             >
                                 <Text style={{ color: "#6366f1", fontSize: 11, fontWeight: "600" }}>
                                     {ann.clef === "bass" ? `低音: ${ann.label}` : `高音: ${ann.label}`}
                                 </Text>
-                            </View>
+                            </Pressable>
                         )
                     })}
                     {currentPosition && canvasHeight > 0 && (() => {
