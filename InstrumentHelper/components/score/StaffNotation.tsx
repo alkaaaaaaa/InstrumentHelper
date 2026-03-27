@@ -279,6 +279,36 @@ function StaffNotationComponent({
     const trebleFirstLineY = useMemo(() => trebleLineY(1), [trebleLineY])
     const bassFirstLineY = useMemo(() => bassLineY(1), [bassLineY])
 
+    // 同一小节/同一拍/同一谱号内，统一符杆方向（避免和弦内一上一下）
+    const stemDirectionByBeat = useMemo(() => {
+        const grouped = new Map<string, number[]>()
+        for (const layout of measureLayout) {
+            const notes = layout.measure.notes || []
+            for (const note of notes) {
+                const staffPos = pitchToStaffPosition(note.pitch)
+                const noteClef = note.clef ?? getClefForStaffPos(staffPos)
+                const key = `${layout.measure.index}-${note.start}-${noteClef}`
+                const current = grouped.get(key)
+                if (current) {
+                    current.push(staffPos)
+                } else {
+                    grouped.set(key, [staffPos])
+                }
+            }
+        }
+
+        const direction = new Map<string, boolean>()
+        grouped.forEach((staffPositions, key) => {
+            // 用组内平均音高决定统一方向：越高越倾向下杆，越低越倾向上杆
+            const avgStaffPos = staffPositions.reduce((sum, p) => sum + p, 0) / staffPositions.length
+            const isTreble = key.endsWith("-treble")
+            const firstLinePos = isTreble ? TREBLE_FIRST_LINE_POS : BASS_FIRST_LINE_POS
+            const stemPivotPos = firstLinePos + 4
+            direction.set(key, avgStaffPos < stemPivotPos)
+        })
+        return direction
+    }, [measureLayout])
+
     // 双谱表的音高位置到 Y 映射：
     // 高音谱号以 E4(pos=0) 为第一线；低音谱号以 G2(pos=-12) 为第一线
     const staffPosToY = useCallback((staffPos: number, clef?: "treble" | "bass") => {
@@ -566,9 +596,10 @@ function StaffNotationComponent({
                         const parsed = parsePitch(note.pitch)
                         const accidental = parsed?.accidental || ""
 
-                        // 符杆方向：对应谱表第三线以上朝下，以下朝上
+                        // 符杆方向：同拍同谱号统一；否则按自身音高决定
                         const stemPivotPos = firstLinePos + 4
-                        const stemUp = staffPos < stemPivotPos
+                        const stemKey = `${layout.measure.index}-${note.start}-${noteClef}`
+                        const stemUp = stemDirectionByBeat.get(stemKey) ?? (staffPos < stemPivotPos)
 
                         return (
                             <Group key={`note-${layout.measure.index}-${ni}`}>
