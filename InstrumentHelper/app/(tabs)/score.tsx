@@ -218,25 +218,33 @@ function StaffNotationView({ onBack, initialScore, scoreId }: { onBack: () => vo
 
     const handleMoveLeft = useCallback(() => {
         setSelectedNote(prev => {
-            if (!prev) return { measureIndex: 0, beat: 0 }
-            if (prev.beat > 0) return { ...prev, beat: prev.beat - 1 }
-            if (prev.measureIndex > 0) {
+            let next: SelectedStaffNote | null = null
+            if (!prev) {
+                next = { measureIndex: 0, beat: 0 }
+            } else if (prev.beat > 0) {
+                next = { ...prev, beat: prev.beat - 1 }
+            } else if (prev.measureIndex > 0) {
                 const prevMeasure = score.measures.find(m => m.index === prev.measureIndex - 1)
                 const prevNotes = prevMeasure?.notes || []
                 const prevMaxNoteEnd = prevNotes.length > 0
                     ? Math.max(...prevNotes.map(n => n.start + n.duration))
                     : 0
-                // 跳到前一小节的实际光标位置，不超出其可见范围
                 const targetBeat = Math.min(prevMaxNoteEnd, beatsPerMeasure - 1)
-                return { measureIndex: prev.measureIndex - 1, beat: targetBeat }
+                next = { measureIndex: prev.measureIndex - 1, beat: targetBeat }
+            } else {
+                next = prev
             }
-            return prev
+            if (next && next !== prev) {
+                seekTo(next.measureIndex, next.beat)
+            }
+            return next
         })
-    }, [beatsPerMeasure, score.measures])
+    }, [beatsPerMeasure, score.measures, seekTo])
 
     const handleMoveRight = useCallback(() => {
         if (!selectedNote) {
             setSelectedNote({ measureIndex: 0, beat: 0 })
+            seekTo(0, 0)
             return
         }
         const currentMeasure = score.measures.find(m => m.index === selectedNote.measureIndex)
@@ -248,12 +256,16 @@ function StaffNotationView({ onBack, initialScore, scoreId }: { onBack: () => vo
 
         // 小节未满：最后可见位置是 maxNoteEnd，从那里再移就跳小节
         if (!measureFull && selectedNote.beat + 1 <= maxNoteEnd) {
-            setSelectedNote({ ...selectedNote, beat: selectedNote.beat + 1 })
+            const next = { ...selectedNote, beat: selectedNote.beat + 1 }
+            setSelectedNote(next)
+            seekTo(next.measureIndex, next.beat)
             return
         }
         // 跳到下一个已有小节
         if (selectedNote.measureIndex < score.measures.length - 1) {
-            setSelectedNote({ measureIndex: selectedNote.measureIndex + 1, beat: 0 })
+            const next = { measureIndex: selectedNote.measureIndex + 1, beat: 0 }
+            setSelectedNote(next)
+            seekTo(next.measureIndex, next.beat)
             return
         }
         // 已在最后一个小节且无法继续移动：自动添加新小节并跳转
@@ -263,7 +275,8 @@ function StaffNotationView({ onBack, initialScore, scoreId }: { onBack: () => vo
             measures: [...prev.measures, { index: prev.measures.length, notes: [], tabNotes: [] }],
         }))
         setSelectedNote({ measureIndex: newIndex, beat: 0 })
-    }, [beatsPerMeasure, score.measures, selectedNote])
+        seekTo(newIndex, 0)
+    }, [beatsPerMeasure, score.measures, selectedNote, seekTo])
 
     useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent) => {
