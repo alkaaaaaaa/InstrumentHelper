@@ -14,6 +14,7 @@ const TabNoteBody = t.Object({
   string: t.Number(),
   fret: t.Number(),
   beat: t.Number(),
+  duration: t.Optional(t.Number()),
 })
 
 const MeasureBody = t.Object({
@@ -51,7 +52,7 @@ export const scoreRoutes = new Elysia({ prefix: "/scores" })
 
   .get("/", async () => {
     const scores = await ScoreModel.find({}, "title bpm timeSignature updatedAt createdAt").sort({ updatedAt: -1 })
-    return scores
+    return scores.map(s => s.toJSON())
   })
 
   .get("/:id", async ({ params, set }) => {
@@ -60,13 +61,13 @@ export const scoreRoutes = new Elysia({ prefix: "/scores" })
       set.status = 404
       return { error: "Score not found" }
     }
-    return score
+    return score.toJSON()
   })
 
   .post("/", async ({ body, set }) => {
     const score = await ScoreModel.create(body)
     set.status = 201
-    return score
+    return score.toJSON()
   }, { body: ScoreBody })
 
   .put("/:id", async ({ params, body, set }) => {
@@ -75,7 +76,7 @@ export const scoreRoutes = new Elysia({ prefix: "/scores" })
       set.status = 404
       return { error: "Score not found" }
     }
-    return score
+    return score.toJSON()
   }, { body: ScoreBody })
 
   .delete("/:id", async ({ params, set }) => {

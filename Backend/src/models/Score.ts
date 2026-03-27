@@ -12,6 +12,7 @@ const TabNoteSchema = new Schema({
   string: { type: Number, required: true },
   fret: { type: Number, required: true },
   beat: { type: Number, required: true },
+  duration: { type: Number },
 }, { _id: false })
 
 const MeasureSchema = new Schema({
