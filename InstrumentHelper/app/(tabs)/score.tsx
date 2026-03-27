@@ -458,7 +458,7 @@ function StaffNotationView({ onBack, initialScore, scoreId }: { onBack: () => vo
                     })}
                     {currentPosition && canvasHeight > 0 && (() => {
                         const measureX = measureStartXs[currentPosition.measureIndex] ?? LEFT_MARGIN
-                        const playbackX = measureX + currentPosition.beat * BEAT_WIDTH
+                        const playbackX = measureX + currentPosition.beat * BEAT_WIDTH + BEAT_WIDTH / 2
                         return (
                             <View
                                 pointerEvents="none"
@@ -466,12 +466,10 @@ function StaffNotationView({ onBack, initialScore, scoreId }: { onBack: () => vo
                                     position: "absolute",
                                     left: 0,
                                     top: 0,
-                                    width: BEAT_WIDTH - 8,
+                                    width: 2,
                                     height: canvasHeight,
-                                    backgroundColor: "rgba(34, 197, 94, 0.25)",
-                                    borderWidth: 1.5,
-                                    borderColor: "rgba(34, 197, 94, 0.8)",
-                                    transform: [{ translateX: playbackX - BEAT_WIDTH / 2 + 4 }],
+                                    backgroundColor: "rgba(255,192,203, 0.5)",
+                                    transform: [{ translateX: playbackX - 1 }],
                                 }}
                             />
                         )
