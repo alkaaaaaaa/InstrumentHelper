@@ -219,17 +219,19 @@ function StaffNotationView({ onBack, initialScore, scoreId }: { onBack: () => vo
     const handleMoveLeft = useCallback(() => {
         setSelectedNote(prev => {
             let next: SelectedStaffNote | null = null
+            const step = currentDurationRef.current
             if (!prev) {
                 next = { measureIndex: 0, beat: 0 }
             } else if (prev.beat > 0) {
-                next = { ...prev, beat: prev.beat - 1 }
+                const newBeat = Math.round((prev.beat - step) * 10000) / 10000
+                next = { ...prev, beat: Math.max(0, newBeat) }
             } else if (prev.measureIndex > 0) {
                 const prevMeasure = score.measures.find(m => m.index === prev.measureIndex - 1)
                 const prevNotes = prevMeasure?.notes || []
-                const prevMaxNoteEnd = prevNotes.length > 0
-                    ? Math.max(...prevNotes.map(n => n.start + n.duration))
+                // 跳到上一小节最后一个音符的起始位置
+                const targetBeat = prevNotes.length > 0
+                    ? Math.max(...prevNotes.map(n => n.start))
                     : 0
-                const targetBeat = Math.min(prevMaxNoteEnd, beatsPerMeasure - 1)
                 next = { measureIndex: prev.measureIndex - 1, beat: targetBeat }
             } else {
                 next = prev
@@ -239,7 +241,7 @@ function StaffNotationView({ onBack, initialScore, scoreId }: { onBack: () => vo
             }
             return next
         })
-    }, [beatsPerMeasure, score.measures, seekTo])
+    }, [score.measures, seekTo])
 
     const handleMoveRight = useCallback(() => {
         if (!selectedNote) {
@@ -247,6 +249,7 @@ function StaffNotationView({ onBack, initialScore, scoreId }: { onBack: () => vo
             seekTo(0, 0)
             return
         }
+        const step = currentDurationRef.current
         const currentMeasure = score.measures.find(m => m.index === selectedNote.measureIndex)
         const notes = currentMeasure?.notes || []
         const maxNoteEnd = notes.length > 0
@@ -254,9 +257,10 @@ function StaffNotationView({ onBack, initialScore, scoreId }: { onBack: () => vo
             : 0
         const measureFull = maxNoteEnd >= beatsPerMeasure
 
-        // 小节未满：最后可见位置是 maxNoteEnd，从那里再移就跳小节
-        if (!measureFull && selectedNote.beat + 1 <= maxNoteEnd) {
-            const next = { ...selectedNote, beat: selectedNote.beat + 1 }
+        // 小节未满：按当前时值步进，若下一位置仍在已有内容范围内则留在本小节
+        const nextBeat = Math.round((selectedNote.beat + step) * 10000) / 10000
+        if (!measureFull && nextBeat <= maxNoteEnd) {
+            const next = { ...selectedNote, beat: nextBeat }
             setSelectedNote(next)
             seekTo(next.measureIndex, next.beat)
             return
@@ -328,11 +332,9 @@ function StaffNotationView({ onBack, initialScore, scoreId }: { onBack: () => vo
             const maxNoteEnd = notes.length > 0
                 ? Math.max(...notes.map(n => n.start + n.duration))
                 : 0
-            const maxLastNoteStart = notes.length > 0
-                ? Math.max(...notes.map(n => n.start))
-                : 0
             const isFull = maxNoteEnd >= beatsPerMeasure
-            const beatSpan = Math.max(1, Math.ceil(maxLastNoteStart) + 1)
+            // 小节满时固定为 beatsPerMeasure 宽，否则按实际音符末尾向上取整
+            const beatSpan = isFull ? beatsPerMeasure : Math.max(1, Math.ceil(maxNoteEnd))
             x += beatSpan * BEAT_WIDTH
         }
         return result
@@ -428,6 +430,7 @@ function StaffNotationView({ onBack, initialScore, scoreId }: { onBack: () => vo
                         onNoteSelect={handleNoteSelect}
                         height={canvasHeight}
                         selectedStaffPos={selectedStaffPos}
+                        noteResolution={currentDuration}
                     />
                     {/* 和弦标注：渲染为普通 View，不影响 Skia canvas，避免触发重渲染导致音符消失 */}
                     {chordAnnotations.map((ann) => {

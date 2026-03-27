@@ -164,6 +164,8 @@ type Props = {
     onNoteSelect?: (note: SelectedNote) => void
     height: number
     selectedStaffPos?: number
+    /** 当前选中的时值（以拍为单位），用于点击时的音符对齐精度。默认 1（四分音符）*/
+    noteResolution?: number
 }
 
 function StaffNotationComponent({
@@ -173,6 +175,7 @@ function StaffNotationComponent({
     onNoteSelect,
     height,
     selectedStaffPos,
+    noteResolution = 1,
 }: Props) {
     const font = useFont(fontFile, NOTE_FONT_SIZE)
     const clefFont = useFont(fontFile, CLEF_FONT_SIZE)
@@ -185,10 +188,12 @@ function StaffNotationComponent({
         return measures.map((m) => {
             const startX = x
             const notes = m.notes || []
-            const maxLastNoteStart = notes.length > 0
-                ? Math.max(...notes.map(n => n.start))
+            const maxNoteEnd = notes.length > 0
+                ? Math.max(...notes.map(n => n.start + n.duration))
                 : 0
-            const beatSpan = Math.max(1, Math.ceil(maxLastNoteStart) + 1)
+            const isFull = maxNoteEnd >= beatsPerMeasure
+            // 小节满时固定为 beatsPerMeasure 宽，否则按音符末尾向上取整
+            const beatSpan = isFull ? beatsPerMeasure : Math.max(1, Math.ceil(maxNoteEnd))
             const width = beatSpan * BEAT_WIDTH
             x += width
             return { startX, width, beatSpan, measure: m }
@@ -203,13 +208,14 @@ function StaffNotationComponent({
         return measures.map((m) => {
             const startX = x
             const notes = m.notes || []
-            const maxLastNoteStart = notes.length > 0
-                ? Math.max(...notes.map(n => n.start))
+            const maxNoteEnd = notes.length > 0
+                ? Math.max(...notes.map(n => n.start + n.duration))
                 : 0
-            let beatSpan = Math.max(1, Math.ceil(maxLastNoteStart) + 1)
-            // 光标在该小节且超出当前内容时，扩展一格以显示幽灵音符
+            const isFull = maxNoteEnd >= beatsPerMeasure
+            let beatSpan = isFull ? beatsPerMeasure : Math.max(1, Math.ceil(maxNoteEnd))
+            // 光标在该小节且超出当前内容时，扩展以显示幽灵音符（步进为 noteResolution）
             if (selectedNote && selectedNote.measureIndex === m.index && selectedNote.beat >= beatSpan) {
-                beatSpan = selectedNote.beat + 1
+                beatSpan = Math.ceil((selectedNote.beat + noteResolution) / noteResolution) * noteResolution
             }
             const width = beatSpan * BEAT_WIDTH
             x += width
@@ -277,7 +283,9 @@ function StaffNotationComponent({
             const mEndX = layout.startX + layout.width
             if (locationX >= layout.startX && locationX < mEndX) {
                 const relX = locationX - layout.startX
-                const beat = Math.floor(relX / BEAT_WIDTH)
+                // 按当前时值（noteResolution）对齐拍位，支持八分音符等分数拍
+                const resolution = noteResolution
+                const beat = Math.round(Math.floor(relX / (BEAT_WIDTH * resolution)) * resolution * 10000) / 10000
                 if (beat < 0 || beat >= layout.beatSpan) return
 
                 // 将 Y 坐标换算为最近的谱线位置
@@ -293,7 +301,7 @@ function StaffNotationComponent({
                 return
             }
         }
-    }, [onNoteSelect])
+    }, [onNoteSelect, noteResolution])
 
     if (height === 0) return null
 
