@@ -147,6 +147,14 @@ function getNoteClef(note: Note): StaffClef {
     return note.clef ?? getClefForPitch(note.pitch)
 }
 
+function isTypingElement(target: EventTarget | null): boolean {
+    if (typeof HTMLElement === "undefined") return false
+    if (!(target instanceof HTMLElement)) return false
+    const tag = target.tagName
+    if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return true
+    return target.isContentEditable
+}
+
 // 计算六线谱小节中已占用的总时值（按拍计）
 // 规则：同一拍多根弦只按该拍最大时值计算一次
 function getTabMeasureDuration(tabNotes: TabNote[] | undefined): number {
@@ -418,6 +426,7 @@ function StaffNotationView({ onBack, initialScore, scoreId }: { onBack: () => vo
 
     useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent) => {
+            if (saveModalVisible || isTypingElement(e.target)) return
             // 仅处理我们关心的按键
             const handled = ["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Enter", "Delete", "Backspace", " "]
             if (!handled.includes(e.key)) return
@@ -456,7 +465,7 @@ function StaffNotationView({ onBack, initialScore, scoreId }: { onBack: () => vo
         // true = capture 阶段，先于任何元素的 keydown 处理器执行
         window.addEventListener("keydown", handleKeyDown, true)
         return () => window.removeEventListener("keydown", handleKeyDown, true)
-    }, [handleMoveLeft, handleMoveRight, handleDelete, togglePlayPause])
+    }, [handleMoveLeft, handleMoveRight, handleDelete, togglePlayPause, selectedNote, saveModalVisible])
 
     const accidentalLabel = currentAccidental === "#" ? "♯" : currentAccidental === "b" ? "♭" : ""
     const currentPitchLabel = staffPositionToPitch(selectedStaffPos, currentAccidental)
@@ -864,6 +873,7 @@ function TabNotationEditor({ onBack, initialScore, scoreId }: { onBack: () => vo
         }
 
         const handleKeyDown = (e: KeyboardEvent) => {
+            if (saveModalVisible || isTypingElement(e.target)) return
             // 数字键 0-9 组合成 0–24 品位
             if (e.key >= "0" && e.key <= "9") {
                 e.preventDefault()
