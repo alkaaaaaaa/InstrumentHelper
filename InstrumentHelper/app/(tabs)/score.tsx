@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useRef, useEffect, useMemo } from "react"
-import { View, ScrollView, StyleSheet, Text, TouchableOpacity, Alert, ActivityIndicator, FlatList, LayoutChangeEvent, Platform } from "react-native"
+import { View, ScrollView, StyleSheet, Text, TouchableOpacity, Alert, ActivityIndicator, FlatList, LayoutChangeEvent, Platform, Modal, TextInput } from "react-native"
 import { TabStaff } from "../../components/score/TabStaff"
 import { EditorToolbar } from "../../components/score/EditorToolbar"
 import { StaffNotation, BEAT_WIDTH, LEFT_MARGIN, STAFF_LINE_SPACING, staffPositionToPitch, ChordAnnotation } from "../../components/score/StaffNotation"
@@ -27,6 +27,64 @@ function showConfirm(message: string, onConfirm: () => void) {
             { text: "确定", style: "destructive", onPress: onConfirm },
         ])
     }
+}
+
+function SaveTitleModal({
+    visible,
+    initialTitle,
+    isSaving,
+    onCancel,
+    onSave,
+}: {
+    visible: boolean
+    initialTitle: string
+    isSaving: boolean
+    onCancel: () => void
+    onSave: (title: string) => void
+}) {
+    const [title, setTitle] = useState(initialTitle)
+
+    useEffect(() => {
+        if (visible) setTitle(initialTitle)
+    }, [visible, initialTitle])
+
+    return (
+        <Modal visible={visible} transparent animationType="fade" onRequestClose={onCancel}>
+            <View style={saveTitleStyles.overlay}>
+                <View style={saveTitleStyles.card}>
+                    <Text style={saveTitleStyles.cardTitle}>保存乐谱</Text>
+                    <TextInput
+                        style={saveTitleStyles.input}
+                        value={title}
+                        onChangeText={setTitle}
+                        placeholder="请输入乐谱名称"
+                        placeholderTextColor="#aaa"
+                        autoFocus
+                        maxLength={60}
+                        onSubmitEditing={() => onSave(title.trim() || "未命名乐谱")}
+                    />
+                    <View style={saveTitleStyles.btnRow}>
+                        <TouchableOpacity
+                            style={saveTitleStyles.cancelBtn}
+                            onPress={onCancel}
+                            disabled={isSaving}
+                        >
+                            <Text style={saveTitleStyles.cancelBtnText}>取消</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                            style={[saveTitleStyles.confirmBtn, isSaving && { opacity: 0.5 }]}
+                            onPress={() => onSave(title.trim() || "未命名乐谱")}
+                            disabled={isSaving}
+                        >
+                            <Text style={saveTitleStyles.confirmBtnText}>
+                                {isSaving ? "保存中..." : "保存"}
+                            </Text>
+                        </TouchableOpacity>
+                    </View>
+                </View>
+            </View>
+        </Modal>
+    )
 }
 
 const DEFAULT_TUNING = ["E2", "A2", "D3", "G3", "B3", "E4"]
@@ -78,6 +136,7 @@ function StaffNotationView({ onBack, initialScore, scoreId }: { onBack: () => vo
     const [score, setScore] = useState<ScoreType>(initialScore || emptyScore)
     const [currentScoreId, setCurrentScoreId] = useState<string | undefined>(scoreId)
     const [saving, setSaving] = useState(false)
+    const [saveModalVisible, setSaveModalVisible] = useState(false)
     const [selectedNote, setSelectedNote] = useState<SelectedStaffNote | null>(null)
     const [currentOctave, setCurrentOctave] = useState(4)
     const [currentDuration, setCurrentDuration] = useState(1)
@@ -100,11 +159,11 @@ function StaffNotationView({ onBack, initialScore, scoreId }: { onBack: () => vo
         }
     }, [])
 
-    const handleSave = useCallback(async () => {
+    const handleSave = useCallback(async (title: string) => {
         setSaving(true)
         try {
             const payload = {
-                title: score.title || "未命名乐谱",
+                title,
                 bpm: score.bpm,
                 timeSignature: score.timeSignature,
                 tuning: score.tuning,
@@ -113,11 +172,13 @@ function StaffNotationView({ onBack, initialScore, scoreId }: { onBack: () => vo
             if (currentScoreId) {
                 const updated = await scoreApi.update(currentScoreId, payload)
                 setScore(prev => ({ ...prev, ...updated }))
+                setSaveModalVisible(false)
                 showAlert("保存成功", "乐谱已更新")
             } else {
                 const created = await scoreApi.create(payload)
                 setCurrentScoreId(created._id)
                 setScore(prev => ({ ...prev, ...created }))
+                setSaveModalVisible(false)
                 showAlert("保存成功", "乐谱已创建")
             }
         } catch (e) {
@@ -375,6 +436,9 @@ function StaffNotationView({ onBack, initialScore, scoreId }: { onBack: () => vo
                 <TouchableOpacity style={styles.backButton} onPress={onBack}>
                     <Text style={styles.backButtonText}>← 返回</Text>
                 </TouchableOpacity>
+                <Text style={styles.scoreTitle} numberOfLines={1}>
+                    {score.title || "未命名乐谱"}
+                </Text>
                 <View style={styles.playbackControls}>
                     <TouchableOpacity
                         style={[
@@ -402,7 +466,6 @@ function StaffNotationView({ onBack, initialScore, scoreId }: { onBack: () => vo
                         style={[styles.analyzeBtn, analyzing && styles.analyzeBtnDisabled]}
                         onPress={(e) => {
                             handleAnalyze()
-                            // 点击后立即释放焦点，防止 Enter 键误触发按钮
                             ;(e?.target as any)?.blur?.()
                         }}
                         disabled={analyzing}
@@ -423,17 +486,22 @@ function StaffNotationView({ onBack, initialScore, scoreId }: { onBack: () => vo
                     <TouchableOpacity
                         style={[styles.saveBtn, saving && styles.saveBtnDisabled]}
                         onPress={(e) => {
-                            handleSave()
+                            setSaveModalVisible(true)
                             ;(e?.target as any)?.blur?.()
                         }}
                         disabled={saving}
                     >
-                        <Text style={styles.saveBtnText}>
-                            {saving ? "保存中..." : "💾 保存"}
-                        </Text>
+                        <Text style={styles.saveBtnText}>💾 保存</Text>
                     </TouchableOpacity>
                 </View>
             </View>
+            <SaveTitleModal
+                visible={saveModalVisible}
+                initialTitle={score.title || ""}
+                isSaving={saving}
+                onCancel={() => setSaveModalVisible(false)}
+                onSave={handleSave}
+            />
             <ScrollView
                 ref={scrollViewRef}
                 horizontal
@@ -529,17 +597,18 @@ function TabNotationEditor({ onBack, initialScore, scoreId }: { onBack: () => vo
     const [score, setScore] = useState<ScoreType>(initialScore || emptyScore)
     const [currentScoreId, setCurrentScoreId] = useState<string | undefined>(scoreId)
     const [saving, setSaving] = useState(false)
+    const [saveModalVisible, setSaveModalVisible] = useState(false)
     const [selectedCell, setSelectedCell] = useState<SelectedCell | null>(null)
     const [chordModalVisible, setChordModalVisible] = useState(false)
     const [currentDuration, setCurrentDuration] = useState(1)
     // 数字键多位输入缓存（例如按 1 再按 2 组成 12）
     const fretInputBufferRef = useRef<{ value: string; timer: number | null }>({ value: "", timer: null })
 
-    const handleSave = useCallback(async () => {
+    const handleSave = useCallback(async (title: string) => {
         setSaving(true)
         try {
             const payload = {
-                title: score.title || "未命名乐谱",
+                title,
                 bpm: score.bpm,
                 timeSignature: score.timeSignature,
                 tuning: score.tuning,
@@ -548,11 +617,13 @@ function TabNotationEditor({ onBack, initialScore, scoreId }: { onBack: () => vo
             if (currentScoreId) {
                 const updated = await scoreApi.update(currentScoreId, payload)
                 setScore(prev => ({ ...prev, ...updated }))
+                setSaveModalVisible(false)
                 showAlert("保存成功", "乐谱已更新")
             } else {
                 const created = await scoreApi.create(payload)
                 setCurrentScoreId(created._id)
                 setScore(prev => ({ ...prev, ...created }))
+                setSaveModalVisible(false)
                 showAlert("保存成功", "乐谱已创建")
             }
         } catch (e) {
@@ -826,6 +897,9 @@ function TabNotationEditor({ onBack, initialScore, scoreId }: { onBack: () => vo
                 <TouchableOpacity style={styles.backButton} onPress={onBack}>
                     <Text style={styles.backButtonText}>← 返回</Text>
                 </TouchableOpacity>
+                <Text style={styles.scoreTitle} numberOfLines={1}>
+                    {score.title || "未命名乐谱"}
+                </Text>
                 <View style={styles.playbackControls}>
                     <TouchableOpacity
                         style={styles.chordBtn}
@@ -835,15 +909,20 @@ function TabNotationEditor({ onBack, initialScore, scoreId }: { onBack: () => vo
                     </TouchableOpacity>
                     <TouchableOpacity
                         style={[styles.saveBtn, saving && styles.saveBtnDisabled]}
-                        onPress={handleSave}
+                        onPress={() => setSaveModalVisible(true)}
                         disabled={saving}
                     >
-                        <Text style={styles.saveBtnText}>
-                            {saving ? "保存中..." : "💾 保存"}
-                        </Text>
+                        <Text style={styles.saveBtnText}>💾 保存</Text>
                     </TouchableOpacity>
                 </View>
             </View>
+            <SaveTitleModal
+                visible={saveModalVisible}
+                initialTitle={score.title || ""}
+                isSaving={saving}
+                onCancel={() => setSaveModalVisible(false)}
+                onSave={handleSave}
+            />
             <ScrollView
                 horizontal
                 style={styles.scrollView}
@@ -1049,6 +1128,14 @@ const styles = StyleSheet.create({
         fontSize: 16,
         color: "#007AFF",
         fontWeight: "500",
+    },
+    scoreTitle: {
+        flex: 1,
+        fontSize: 15,
+        fontWeight: "600",
+        color: "#333",
+        textAlign: "center",
+        marginHorizontal: 8,
     },
     playbackControls: {
         flexDirection: "row",
@@ -1284,5 +1371,71 @@ const styles = StyleSheet.create({
         fontSize: 13,
         fontWeight: "500",
         color: "#ef4444",
+    },
+})
+
+const saveTitleStyles = StyleSheet.create({
+    overlay: {
+        flex: 1,
+        backgroundColor: "rgba(0,0,0,0.45)",
+        justifyContent: "center",
+        alignItems: "center",
+    },
+    card: {
+        backgroundColor: "#fff",
+        borderRadius: 16,
+        padding: 24,
+        width: 320,
+        shadowColor: "#000",
+        shadowOffset: { width: 0, height: 8 },
+        shadowOpacity: 0.15,
+        shadowRadius: 24,
+        elevation: 10,
+    },
+    cardTitle: {
+        fontSize: 18,
+        fontWeight: "700",
+        color: "#1a1a1a",
+        marginBottom: 16,
+        textAlign: "center",
+    },
+    input: {
+        borderWidth: 1.5,
+        borderColor: "#e5e7eb",
+        borderRadius: 10,
+        paddingHorizontal: 14,
+        paddingVertical: 10,
+        fontSize: 15,
+        color: "#1a1a1a",
+        backgroundColor: "#f9fafb",
+        marginBottom: 20,
+    },
+    btnRow: {
+        flexDirection: "row",
+        gap: 10,
+    },
+    cancelBtn: {
+        flex: 1,
+        paddingVertical: 11,
+        borderRadius: 10,
+        backgroundColor: "#f3f4f6",
+        alignItems: "center",
+    },
+    cancelBtnText: {
+        fontSize: 15,
+        fontWeight: "600",
+        color: "#6b7280",
+    },
+    confirmBtn: {
+        flex: 1,
+        paddingVertical: 11,
+        borderRadius: 10,
+        backgroundColor: "#3b82f6",
+        alignItems: "center",
+    },
+    confirmBtnText: {
+        fontSize: 15,
+        fontWeight: "600",
+        color: "#fff",
     },
 })
