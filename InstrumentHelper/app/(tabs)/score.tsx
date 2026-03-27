@@ -51,9 +51,6 @@ const emptyScore: ScoreType = {
     timeSignature: { beats: 4, beatValue: 4 },
     measures: [
         { index: 0, notes: [], tabNotes: [] },
-        { index: 1, notes: [], tabNotes: [] },
-        { index: 2, notes: [], tabNotes: [] },
-        { index: 3, notes: [], tabNotes: [] },
     ],
 }
 
@@ -238,26 +235,35 @@ function StaffNotationView({ onBack, initialScore, scoreId }: { onBack: () => vo
     }, [beatsPerMeasure, score.measures])
 
     const handleMoveRight = useCallback(() => {
-        setSelectedNote(prev => {
-            if (!prev) return { measureIndex: 0, beat: 0 }
-            const currentMeasure = score.measures.find(m => m.index === prev.measureIndex)
-            const notes = currentMeasure?.notes || []
-            const maxNoteEnd = notes.length > 0
-                ? Math.max(...notes.map(n => n.start + n.duration))
-                : 0
-            const measureFull = maxNoteEnd >= beatsPerMeasure
+        if (!selectedNote) {
+            setSelectedNote({ measureIndex: 0, beat: 0 })
+            return
+        }
+        const currentMeasure = score.measures.find(m => m.index === selectedNote.measureIndex)
+        const notes = currentMeasure?.notes || []
+        const maxNoteEnd = notes.length > 0
+            ? Math.max(...notes.map(n => n.start + n.duration))
+            : 0
+        const measureFull = maxNoteEnd >= beatsPerMeasure
 
-            // 小节未满：最后可见位置是 maxNoteEnd（最后音符结束处），从那里再移就跳小节
-            if (!measureFull && prev.beat + 1 <= maxNoteEnd) {
-                return { ...prev, beat: prev.beat + 1 }
-            }
-            // 小节已满或已在最后可见格，跳到下一小节
-            if (prev.measureIndex < score.measures.length - 1) {
-                return { measureIndex: prev.measureIndex + 1, beat: 0 }
-            }
-            return prev
-        })
-    }, [beatsPerMeasure, score.measures])
+        // 小节未满：最后可见位置是 maxNoteEnd，从那里再移就跳小节
+        if (!measureFull && selectedNote.beat + 1 <= maxNoteEnd) {
+            setSelectedNote({ ...selectedNote, beat: selectedNote.beat + 1 })
+            return
+        }
+        // 跳到下一个已有小节
+        if (selectedNote.measureIndex < score.measures.length - 1) {
+            setSelectedNote({ measureIndex: selectedNote.measureIndex + 1, beat: 0 })
+            return
+        }
+        // 已在最后一个小节且无法继续移动：自动添加新小节并跳转
+        const newIndex = score.measures.length
+        setScore(prev => ({
+            ...prev,
+            measures: [...prev.measures, { index: prev.measures.length, notes: [], tabNotes: [] }],
+        }))
+        setSelectedNote({ measureIndex: newIndex, beat: 0 })
+    }, [beatsPerMeasure, score.measures, selectedNote])
 
     useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent) => {
@@ -628,28 +634,38 @@ function TabNotationEditor({ onBack, initialScore, scoreId }: { onBack: () => vo
     }, [beatsPerMeasure, score.measures])
 
     const handleMoveRight = useCallback(() => {
-        setSelectedCell(prev => {
-            if (!prev) return { measureIndex: 0, beat: 0, string: 1 }
-            const currentMeasure = score.measures.find(m => m.index === prev.measureIndex)
-            const tabNotes = currentMeasure?.tabNotes || []
-            const beatSpan = getTabMeasureBeatSpan(tabNotes)
-            const measureFull = getTabMeasureDuration(tabNotes) >= beatsPerMeasure
+        if (!selectedCell) {
+            setSelectedCell({ measureIndex: 0, beat: 0, string: 1 })
+            return
+        }
+        const currentMeasure = score.measures.find(m => m.index === selectedCell.measureIndex)
+        const tabNotes = currentMeasure?.tabNotes || []
+        const beatSpan = getTabMeasureBeatSpan(tabNotes)
+        const measureFull = getTabMeasureDuration(tabNotes) >= beatsPerMeasure
 
-            // 小节未满时，先在当前已可见范围内移动
-            if (!measureFull && prev.beat + 1 < beatSpan) {
-                return { ...prev, beat: prev.beat + 1 }
-            }
-            // 小节未满但已经到当前可见末尾时，继续在本小节扩出下一格
-            if (!measureFull) {
-                return { ...prev, beat: prev.beat + 1 }
-            }
-            // 小节已满或已在最后可见格，跳到下一小节
-            if (prev.measureIndex < score.measures.length - 1) {
-                return { ...prev, measureIndex: prev.measureIndex + 1, beat: 0 }
-            }
-            return prev
-        })
-    }, [beatsPerMeasure, score.measures])
+        // 小节未满时，先在当前已可见范围内移动
+        if (!measureFull && selectedCell.beat + 1 < beatSpan) {
+            setSelectedCell({ ...selectedCell, beat: selectedCell.beat + 1 })
+            return
+        }
+        // 小节未满但已经到当前可见末尾时，继续在本小节扩出下一格
+        if (!measureFull) {
+            setSelectedCell({ ...selectedCell, beat: selectedCell.beat + 1 })
+            return
+        }
+        // 跳到下一个已有小节
+        if (selectedCell.measureIndex < score.measures.length - 1) {
+            setSelectedCell({ ...selectedCell, measureIndex: selectedCell.measureIndex + 1, beat: 0 })
+            return
+        }
+        // 已在最后一个已满小节：自动添加新小节并跳转
+        const newIndex = score.measures.length
+        setScore(prev => ({
+            ...prev,
+            measures: [...prev.measures, { index: prev.measures.length, notes: [], tabNotes: [] }],
+        }))
+        setSelectedCell({ measureIndex: newIndex, beat: 0, string: selectedCell.string })
+    }, [beatsPerMeasure, score.measures, selectedCell])
 
     const handleMoveUp = useCallback(() => {
         setSelectedCell(prev => {
