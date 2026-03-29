@@ -356,24 +356,33 @@ export function TabStaff({
                     if (!layout) return null
                     const beat = selectedCell.beat
                     const cy = stringY(selectedCell.string)
-
-                    const cx = beatX(layout.startX, Math.min(beat, layout.beatSpan - 1))
+                    const selectedTabNote = (layout.measure.tabNotes || []).find(
+                        note => note.beat === selectedCell.beat && note.string === selectedCell.string
+                    )
+                    const slotSize = selectedTabNote?.duration ?? 1
+                    const cx = beatX(layout.startX, Math.min(beat, layout.beatSpan - 1), slotSize)
+                    const noteText = selectedTabNote?.fret?.toString() ?? ""
+                    const noteTextWidth = noteText.length <= 1 ? 10 : 18
+                    const highlightWidth = selectedTabNote
+                        ? Math.max(noteTextWidth + 14, 34)
+                        : TAB_BEAT_WIDTH - 8
+                    const highlightHeight = selectedTabNote ? NOTE_FONT_SIZE + 10 : LINE_SPACING - 4
                     return (
                         <Group>
                             <RoundedRect
-                                x={cx - TAB_BEAT_WIDTH / 2 + 4}
-                                y={cy - LINE_SPACING / 2 + 2}
-                                width={TAB_BEAT_WIDTH - 8}
-                                height={LINE_SPACING - 4}
-                                r={4}
+                                x={cx - highlightWidth / 2}
+                                y={cy - highlightHeight / 2}
+                                width={highlightWidth}
+                                height={highlightHeight}
+                                r={selectedTabNote ? 2 : 4}
                                 color={CURSOR_COLOR}
                             />
                             <RoundedRect
-                                x={cx - TAB_BEAT_WIDTH / 2 + 4}
-                                y={cy - LINE_SPACING / 2 + 2}
-                                width={TAB_BEAT_WIDTH - 8}
-                                height={LINE_SPACING - 4}
-                                r={4}
+                                x={cx - highlightWidth / 2}
+                                y={cy - highlightHeight / 2}
+                                width={highlightWidth}
+                                height={highlightHeight}
+                                r={selectedTabNote ? 2 : 4}
                                 color={CURSOR_BORDER_COLOR}
                                 style="stroke"
                                 strokeWidth={1.5}
