@@ -15,6 +15,7 @@ const TabNoteBody = t.Object({
   fret: t.Number(),
   beat: t.Number(),
   duration: t.Optional(t.Number()),
+  bend: t.Optional(t.Number()),
 })
 
 const MeasureBody = t.Object({
@@ -44,7 +45,13 @@ export const scoreRoutes = new Elysia({ prefix: "/scores" })
     {
       body: t.Object({
         notes: t.Array(NoteBody),
-        tabNotes: t.Optional(t.Array(TabNoteBody)),
+        tabNotes: t.Optional(t.Array(t.Object({
+          string: t.Number(),
+          fret: t.Number(),
+          beat: t.Number(),
+          duration: t.Optional(t.Number()),
+          bend: t.Optional(t.Number()),
+        }))),
         tuning: t.Optional(t.Array(t.String())),
       }),
     },
