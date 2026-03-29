@@ -889,16 +889,14 @@ function TabNotationEditor({ onBack, initialScore, scoreId }: { onBack: () => vo
                 const prevMeasure = score.measures.find(m => m.index === prev.measureIndex - 1)
                 const prevTabNotes = prevMeasure?.tabNotes || []
                 const prevBeatSpan = getTabMeasureBeatSpan(prevTabNotes)
-                const prevIsFull = getTabMeasureDuration(prevTabNotes) >= beatsPerMeasure
-                // 跳到前一小节的实际光标位置，不超出其可见范围
-                const targetBeat = prevIsFull
-                    ? beatsPerMeasure - 1
-                    : Math.max(0, prevBeatSpan - 1)
+                // 始终用 beatSpan - 1 作为目标：beat 是格子索引，不是时值
+                // 例如 8 个八分音符占 8 个格（索引 0-7），而 beatsPerMeasure-1=3 是错误的
+                const targetBeat = Math.max(0, prevBeatSpan - 1)
                 return { ...prev, measureIndex: prev.measureIndex - 1, beat: targetBeat }
             }
             return prev
         })
-    }, [beatsPerMeasure, score.measures])
+    }, [score.measures])
 
     const handleMoveRight = useCallback(() => {
         if (!selectedCell) {
@@ -910,13 +908,13 @@ function TabNotationEditor({ onBack, initialScore, scoreId }: { onBack: () => vo
         const beatSpan = getTabMeasureBeatSpan(tabNotes)
         const measureFull = getTabMeasureDuration(tabNotes) >= beatsPerMeasure
 
-        // 小节未满时，先在当前已可见范围内移动
+        // 小节未满时，在当前可见范围内移动
         if (!measureFull && selectedCell.beat + 1 < beatSpan) {
             setSelectedCell({ ...selectedCell, beat: selectedCell.beat + 1 })
             return
         }
-        // 小节未满但已经到当前可见末尾时，继续在本小节扩出下一格
-        if (!measureFull) {
+        // 小节未满且光标恰好在可见末尾（有音符时才扩出一格，防止无限扩张）
+        if (!measureFull && tabNotes.length > 0 && selectedCell.beat === beatSpan - 1) {
             setSelectedCell({ ...selectedCell, beat: selectedCell.beat + 1 })
             return
         }
