@@ -765,7 +765,7 @@ function TabNotationEditor({ onBack, initialScore, scoreId }: { onBack: () => vo
     // 数字键多位输入缓存（例如按 1 再按 2 组成 12）
     const fretInputBufferRef = useRef<{ value: string; timer: number | null }>({ value: "", timer: null })
 
-    const { playbackState, currentPosition, togglePlayPause, stop } = useScorePlayer(score)
+    const { playbackState, currentPosition, togglePlayPause, stop, seekTo } = useScorePlayer(score)
     const scrollViewRef = useRef<ScrollView>(null)
     const [tabCanvasHeight, setTabCanvasHeight] = useState(0)
 
@@ -818,6 +818,7 @@ function TabNotationEditor({ onBack, initialScore, scoreId }: { onBack: () => vo
 
     const handleCellSelect = useCallback((cell: SelectedCell) => {
         setSelectedCell(cell)
+        seekTo(cell.measureIndex, cell.beat)
         // 同步当前推弦值到选中格子上已有音符的 bend
         setScore(prev => {
             const measure = prev.measures.find(m => m.index === cell.measureIndex)
@@ -825,7 +826,7 @@ function TabNotationEditor({ onBack, initialScore, scoreId }: { onBack: () => vo
             setCurrentBend(existing?.bend ?? 0)
             return prev
         })
-    }, [])
+    }, [seekTo])
 
     const handleFretInput = useCallback((fret: number) => {
         if (!selectedCell) return
@@ -941,10 +942,10 @@ function TabNotationEditor({ onBack, initialScore, scoreId }: { onBack: () => vo
             if (prev.measureIndex > 0) {
                 const prevMeasure = score.measures.find(m => m.index === prev.measureIndex - 1)
                 const prevTabNotes = prevMeasure?.tabNotes || []
-                const prevBeatSpan = getTabMeasureBeatSpan(prevTabNotes)
-                // 始终用 beatSpan - 1 作为目标：beat 是格子索引，不是时值
-                // 例如 8 个八分音符占 8 个格（索引 0-7），而 beatsPerMeasure-1=3 是错误的
-                const targetBeat = Math.max(0, prevBeatSpan - 1)
+                // 跨回上一小节时，优先落到最后一个真实音符，避免停在空白格导致再次右移立刻跳回下一小节
+                const targetBeat = prevTabNotes.length > 0
+                    ? Math.max(...prevTabNotes.map(n => n.beat))
+                    : 0
                 return { ...prev, measureIndex: prev.measureIndex - 1, beat: targetBeat }
             }
             return prev
@@ -960,9 +961,17 @@ function TabNotationEditor({ onBack, initialScore, scoreId }: { onBack: () => vo
         const tabNotes = currentMeasure?.tabNotes || []
         const beatSpan = getTabMeasureBeatSpan(tabNotes)
         const measureFull = getTabMeasureDuration(tabNotes) >= beatsPerMeasure
+        const sortedBeats = Array.from(new Set(tabNotes.map(n => n.beat))).sort((a, b) => a - b)
 
-        // 小节未满时，在当前可见范围内移动
-        if (!measureFull && selectedCell.beat + 1 < beatSpan) {
+        // 优先跳到当前小节里下一个已有音符，满小节也不应直接跨到下一小节
+        const nextExistingBeat = sortedBeats.find(beat => beat > selectedCell.beat)
+        if (nextExistingBeat !== undefined) {
+            setSelectedCell({ ...selectedCell, beat: nextExistingBeat })
+            return
+        }
+
+        // 当前小节还有可见格子时，先在本小节内移动
+        if (selectedCell.beat + 1 < beatSpan) {
             setSelectedCell({ ...selectedCell, beat: selectedCell.beat + 1 })
             return
         }
@@ -1129,13 +1138,22 @@ function TabNotationEditor({ onBack, initialScore, scoreId }: { onBack: () => vo
         return result
     }, [score.measures, selectedCell])
 
+    const getTabPlaybackCenterX = useCallback((measureIndex: number, beat: number) => {
+        const measureX = tabMeasureStartXs[measureIndex] ?? TAB_LEFT_MARGIN
+        const measure = score.measures.find(m => m.index === measureIndex)
+        const notesAtBeat = (measure?.tabNotes || []).filter(note => note.beat === beat)
+        const slotSize = notesAtBeat.length > 0
+            ? Math.max(...notesAtBeat.map(note => note.duration ?? 1))
+            : 1
+        return measureX + beat * TAB_BEAT_WIDTH + (TAB_BEAT_WIDTH * slotSize) / 2
+    }, [score.measures, tabMeasureStartXs])
+
     useEffect(() => {
         if (currentPosition && scrollViewRef.current) {
-            const measureX = tabMeasureStartXs[currentPosition.measureIndex] ?? TAB_LEFT_MARGIN
-            const x = measureX + currentPosition.beat * TAB_BEAT_WIDTH
+            const x = getTabPlaybackCenterX(currentPosition.measureIndex, currentPosition.beat)
             scrollViewRef.current.scrollTo({ x: Math.max(0, x - 150), animated: true })
         }
-    }, [currentPosition, tabMeasureStartXs])
+    }, [currentPosition, getTabPlaybackCenterX])
 
     return (
         <View style={styles.container}>
@@ -1223,8 +1241,7 @@ function TabNotationEditor({ onBack, initialScore, scoreId }: { onBack: () => vo
                         onCellSelect={handleCellSelect}
                     />
                     {currentPosition && tabCanvasHeight > 0 && (() => {
-                        const measureX = tabMeasureStartXs[currentPosition.measureIndex] ?? TAB_LEFT_MARGIN
-                        const playbackX = measureX + currentPosition.beat * TAB_BEAT_WIDTH + TAB_BEAT_WIDTH / 2
+                        const playbackX = getTabPlaybackCenterX(currentPosition.measureIndex, currentPosition.beat)
                         return (
                             <View
                                 pointerEvents="none"

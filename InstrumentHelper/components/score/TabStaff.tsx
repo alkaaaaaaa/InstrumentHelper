@@ -10,7 +10,7 @@ import {
     Path,
     useFont,
 } from "@shopify/react-native-skia"
-import { Pressable, View } from "react-native"
+import { View } from "react-native"
 import { Measure, TabNote, TimeSignature } from "../../models/Score"
 
 // ─── 布局常量 ───
@@ -148,6 +148,8 @@ export function TabStaff({
             return { startX, width, beatSpan, measure: m }
         })
     })()
+    const measureLayoutRef = useRef(measureLayout)
+    measureLayoutRef.current = measureLayout
 
     const stableWidth = stableMeasureLayout.reduce((sum, l) => sum + l.width, TAB_LEFT_MARGIN) + RIGHT_MARGIN
     const visualWidth = measureLayout.reduce((sum, l) => sum + l.width, TAB_LEFT_MARGIN) + RIGHT_MARGIN
@@ -267,12 +269,15 @@ export function TabStaff({
     }, [beamGroups])
 
     // 处理点击
-    const handlePress = useCallback((evt: { nativeEvent: { locationX: number; locationY: number } }) => {
-        const { locationX, locationY } = evt.nativeEvent
+    const handlePress = useCallback((evt: any) => {
         if (!onCellSelect) return
+        const ne = evt?.nativeEvent
+        const locationX: number | undefined = ne?.locationX ?? ne?.offsetX
+        const locationY: number | undefined = ne?.locationY ?? ne?.offsetY
+        if (locationX == null || locationY == null) return
 
         // 找到对应的小节
-        for (const layout of measureLayout) {
+        for (const layout of measureLayoutRef.current) {
             const mEndX = layout.startX + layout.width
             if (locationX >= layout.startX && locationX < mEndX) {
                 // 找到对应的拍
@@ -294,13 +299,12 @@ export function TabStaff({
                 return
             }
         }
-    }, [measureLayout, onCellSelect])
+    }, [onCellSelect])
 
     if (!font || !labelFont) return null
 
     return (
-        <View style={{ width: totalWidth, height: totalHeight }}>
-        <Pressable onPress={handlePress} style={{ width: totalWidth, height: totalHeight }}>
+        <View style={{ width: totalWidth, height: totalHeight, position: "relative" }}>
             <Canvas style={{ width: totalWidth, height: totalHeight }}>
                 {/* ─── 左侧弦号标签 ─── */}
                 {STRING_LABELS.map((label, i) => (
@@ -553,7 +557,19 @@ export function TabStaff({
                     })
                 })}
             </Canvas>
-        </Pressable>
+            <View
+                onStartShouldSetResponder={() => true}
+                onResponderGrant={handlePress}
+                style={{
+                    position: "absolute",
+                    top: 0,
+                    left: 0,
+                    width: totalWidth,
+                    height: totalHeight,
+                    // @ts-ignore - web-only
+                    cursor: "pointer",
+                }}
+            />
         </View>
     )
 }
