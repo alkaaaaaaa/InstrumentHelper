@@ -56,6 +56,9 @@ export function pitchToFrequency(pitch: string): number {
 }
 
 const isWeb = Platform.OS === "web"
+const FUNDAMENTAL_GAIN = 0.88
+const SECOND_HARMONIC_GAIN = 0.09
+const THIRD_HARMONIC_GAIN = 0.03
 
 // ─── Web Audio API 实现 ───
 let webAudioCtx: AudioContext | null = null
@@ -92,17 +95,17 @@ function playNotesWeb(frequencies: number[], durationSec: number, volume: number
         const gain2 = ctx.createGain()
         const gain3 = ctx.createGain()
 
-        gain1.gain.value = ampPerNote * 0.7
-        gain2.gain.value = ampPerNote * 0.2
-        gain3.gain.value = ampPerNote * 0.1
+        gain1.gain.value = ampPerNote * FUNDAMENTAL_GAIN
+        gain2.gain.value = ampPerNote * SECOND_HARMONIC_GAIN
+        gain3.gain.value = ampPerNote * THIRD_HARMONIC_GAIN
 
         // 淡出
         const fadeOutTime = durationSec * 0.7
-        gain1.gain.setValueAtTime(ampPerNote * 0.7, now + fadeOutTime)
+        gain1.gain.setValueAtTime(ampPerNote * FUNDAMENTAL_GAIN, now + fadeOutTime)
         gain1.gain.linearRampToValueAtTime(0, now + durationSec)
-        gain2.gain.setValueAtTime(ampPerNote * 0.2, now + fadeOutTime)
+        gain2.gain.setValueAtTime(ampPerNote * SECOND_HARMONIC_GAIN, now + fadeOutTime)
         gain2.gain.linearRampToValueAtTime(0, now + durationSec)
-        gain3.gain.setValueAtTime(ampPerNote * 0.1, now + fadeOutTime)
+        gain3.gain.setValueAtTime(ampPerNote * THIRD_HARMONIC_GAIN, now + fadeOutTime)
         gain3.gain.linearRampToValueAtTime(0, now + durationSec)
 
         osc1.connect(gain1).connect(ctx.destination)
@@ -161,9 +164,9 @@ function generateWavBytes(
         const t = i / SAMPLE_RATE
 
         for (const freq of frequencies) {
-            sample += Math.sin(2 * Math.PI * freq * t) * 0.7
-            sample += Math.sin(2 * Math.PI * freq * 2 * t) * 0.2
-            sample += Math.sin(2 * Math.PI * freq * 3 * t) * 0.1
+            sample += Math.sin(2 * Math.PI * freq * t) * FUNDAMENTAL_GAIN
+            sample += Math.sin(2 * Math.PI * freq * 2 * t) * SECOND_HARMONIC_GAIN
+            sample += Math.sin(2 * Math.PI * freq * 3 * t) * THIRD_HARMONIC_GAIN
         }
 
         sample *= ampPerNote

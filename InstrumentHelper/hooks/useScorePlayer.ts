@@ -4,6 +4,10 @@ import { playNotes, releaseAllSounds, setupAudioMode, pitchToMidi, midiToPitch }
 
 const DEFAULT_TAB_TUNING = ["E2", "A2", "D3", "G3", "B3", "E4"]
 
+function getEffectiveTuning(tuning?: string[]): string[] {
+    return tuning?.length === 6 ? tuning : DEFAULT_TAB_TUNING
+}
+
 /** 将六线谱音符（弦+品位+推弦）转换为音高字符串，tuning[0]=string6(低E), tuning[5]=string1(高e) */
 function tabNoteToPitch(note: TabNote, tuning: string[]): string {
     const openStringPitch = tuning[6 - note.string] ?? "E4"
@@ -28,6 +32,61 @@ type BeatEvent = {
     gapMs: number
 }
 
+type TimedPitch = {
+    startBeat: number
+    displayBeat: number
+    pitch: string
+    duration: number
+}
+
+function roundBeat(value: number): number {
+    return Math.round(value * 10000) / 10000
+}
+
+function buildTimedPitchesForMeasure(
+    measure: Score["measures"][number],
+    tuning: string[],
+): TimedPitch[] {
+    const timed: TimedPitch[] = []
+
+    for (const note of (measure.notes || [])) {
+        timed.push({
+            startBeat: roundBeat(note.start),
+            displayBeat: roundBeat(note.start),
+            pitch: note.pitch,
+            duration: note.duration,
+        })
+    }
+
+    const groupedTabNotes = new Map<number, TabNote[]>()
+    for (const tabNote of (measure.tabNotes || [])) {
+        const slot = roundBeat(tabNote.beat)
+        if (!groupedTabNotes.has(slot)) groupedTabNotes.set(slot, [])
+        groupedTabNotes.get(slot)!.push(tabNote)
+    }
+
+    let accumulatedBeat = 0
+    const sortedSlots = Array.from(groupedTabNotes.keys()).sort((a, b) => a - b)
+    for (const slot of sortedSlots) {
+        const notesAtSlot = groupedTabNotes.get(slot) ?? []
+        const slotDuration = Math.max(...notesAtSlot.map(note => note.duration ?? 1))
+        const startBeat = roundBeat(accumulatedBeat)
+
+        for (const tabNote of notesAtSlot) {
+            timed.push({
+                startBeat,
+                displayBeat: slot,
+                pitch: tabNoteToPitch(tabNote, tuning),
+                duration: tabNote.duration ?? 1,
+            })
+        }
+
+        accumulatedBeat = roundBeat(accumulatedBeat + slotDuration)
+    }
+
+    return timed
+}
+
 /**
  * 将 Score 展开为按时间顺序排列的 beat 事件列表。
  * 支持五线谱 notes 和六线谱 tabNotes（含推弦），每个事件携带正确的间隔时长。
@@ -35,65 +94,47 @@ type BeatEvent = {
 function buildBeatEvents(score: Score): BeatEvent[] {
     const events: BeatEvent[] = []
     const beatDurationSec = 60 / score.bpm
-    const tuning = score.tuning ?? DEFAULT_TAB_TUNING
+    const tuning = getEffectiveTuning(score.tuning)
 
     for (const measure of score.measures) {
-        // beat → 音高列表
-        const pitchMap = new Map<number, string[]>()
-        // beat → 时值列表（用于计算发声时长）
-        const durMap = new Map<number, number[]>()
+        const timedPitches = buildTimedPitchesForMeasure(measure, tuning)
+        const startMap = new Map<number, TimedPitch[]>()
 
-        // 五线谱音符
-        for (const note of (measure.notes || [])) {
-            const beat = note.start
-            if (!pitchMap.has(beat)) pitchMap.set(beat, [])
-            if (!durMap.has(beat)) durMap.set(beat, [])
-            pitchMap.get(beat)!.push(note.pitch)
-            durMap.get(beat)!.push(note.duration)
+        for (const timedPitch of timedPitches) {
+            if (!startMap.has(timedPitch.startBeat)) startMap.set(timedPitch.startBeat, [])
+            startMap.get(timedPitch.startBeat)!.push(timedPitch)
         }
 
-        // 六线谱音符（含推弦：自动提升对应半音数）
-        for (const tabNote of (measure.tabNotes || [])) {
-            const beat = tabNote.beat
-            const pitch = tabNoteToPitch(tabNote, tuning)
-            if (!pitchMap.has(beat)) pitchMap.set(beat, [])
-            if (!durMap.has(beat)) durMap.set(beat, [])
-            pitchMap.get(beat)!.push(pitch)
-            durMap.get(beat)!.push(tabNote.duration ?? 1)
-        }
-
-        // 合并整数拍位置（空拍占位）和所有音符实际起始位置（含分数拍）
-        const positionSet = new Set<number>()
-        for (let b = 0; b < score.timeSignature.beats; b++) {
-            positionSet.add(b)
-        }
-        for (const beat of pitchMap.keys()) {
-            positionSet.add(beat)
+        const positionSet = new Set<number>(startMap.keys())
+        if (!positionSet.has(0) && timedPitches.length > 0) {
+            positionSet.add(0)
         }
 
         const sortedPositions = Array.from(positionSet).sort((a, b) => a - b)
 
         for (let i = 0; i < sortedPositions.length; i++) {
-            const beat = sortedPositions[i]
+            const startBeat = sortedPositions[i]
             const nextBeat = i + 1 < sortedPositions.length
                 ? sortedPositions[i + 1]
                 : score.timeSignature.beats
 
-            const pitches = pitchMap.get(beat) || []
-            const durations = durMap.get(beat) || []
+            const notesAtBeat = startMap.get(startBeat) || []
+            const pitches = notesAtBeat.map(note => note.pitch)
+            const durations = notesAtBeat.map(note => note.duration)
+            const displayBeat = notesAtBeat[0]?.displayBeat ?? startBeat
 
             // 音符发声时长：取该位置最短音符时长
-            let durationBeats = nextBeat - beat
+            let durationBeats = nextBeat - startBeat
             if (durations.length > 0) {
                 durationBeats = Math.min(...durations)
             }
 
             // 到下一事件的间隔：由位置差决定，与音符时值无关
-            const gapBeats = nextBeat - beat
+            const gapBeats = nextBeat - startBeat
 
             events.push({
                 measureIndex: measure.index,
-                beat,
+                beat: displayBeat,
                 pitches,
                 durationSec: durationBeats * beatDurationSec,
                 gapMs: gapBeats * beatDurationSec * 1000,

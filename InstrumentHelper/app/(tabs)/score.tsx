@@ -102,6 +102,10 @@ function SaveTitleModal({
 
 const DEFAULT_TUNING = ["E2", "A2", "D3", "G3", "B3", "E4"]
 
+function getEffectiveTuning(tuning?: string[]): string[] {
+    return tuning?.length === 6 ? tuning : DEFAULT_TUNING
+}
+
 type SelectedCell = {
     measureIndex: number
     beat: number
@@ -195,6 +199,7 @@ const BPM_MAX = 240
 const emptyScore: ScoreType = {
     bpm: 120,
     timeSignature: { beats: 4, beatValue: 4 },
+    tuning: DEFAULT_TUNING,
     measures: [
         { index: 0, notes: [], tabNotes: [] },
     ],
@@ -235,7 +240,7 @@ function StaffNotationView({ onBack, initialScore, scoreId }: { onBack: () => vo
                 title,
                 bpm: score.bpm,
                 timeSignature: score.timeSignature,
-                tuning: score.tuning,
+                tuning: getEffectiveTuning(score.tuning),
                 measures: score.measures,
             }
             if (currentScoreId) {
@@ -371,7 +376,7 @@ function StaffNotationView({ onBack, initialScore, scoreId }: { onBack: () => vo
             try {
                 const res = await scoreApi.analyzeChord({
                     notes: g.notes,
-                    tuning: score.tuning ?? DEFAULT_TUNING,
+                    tuning: getEffectiveTuning(score.tuning),
                 })
                 if (res.type !== "unknown") {
                     results.push({
@@ -740,7 +745,7 @@ function StaffNotationView({ onBack, initialScore, scoreId }: { onBack: () => vo
                 visible={chordModalVisible}
                 onClose={() => setChordModalVisible(false)}
                 measure={score.measures[currentPosition?.measureIndex ?? selectedNote?.measureIndex ?? 0] ?? null}
-                tuning={score.tuning ?? DEFAULT_TUNING}
+                tuning={getEffectiveTuning(score.tuning)}
                 measureIndex={currentPosition?.measureIndex ?? selectedNote?.measureIndex ?? 0}
                 currentBeat={currentPosition?.beat ?? selectedNote?.beat ?? null}
             />
@@ -769,7 +774,7 @@ function TabNotationEditor({ onBack, initialScore, scoreId }: { onBack: () => vo
                 title,
                 bpm: score.bpm,
                 timeSignature: score.timeSignature,
-                tuning: score.tuning,
+                tuning: getEffectiveTuning(score.tuning),
                 measures: score.measures,
             }
             if (currentScoreId) {
@@ -1196,7 +1201,7 @@ function TabNotationEditor({ onBack, initialScore, scoreId }: { onBack: () => vo
                 visible={chordModalVisible}
                 onClose={() => setChordModalVisible(false)}
                 measure={score.measures[selectedCell?.measureIndex ?? 0] ?? null}
-                tuning={score.tuning ?? DEFAULT_TUNING}
+                tuning={getEffectiveTuning(score.tuning)}
                 measureIndex={selectedCell?.measureIndex ?? 0}
                 currentBeat={selectedCell?.beat ?? null}
             />
