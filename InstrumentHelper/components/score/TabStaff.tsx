@@ -16,8 +16,8 @@ import { Measure, TabNote, TimeSignature } from "../../models/Score"
 // ─── 布局常量 ───
 const STRING_COUNT = 6
 const LINE_SPACING = 20           // 弦间距
-const BEAT_WIDTH = 60             // 每拍宽度
-const LEFT_MARGIN = 40            // 左侧留白（放弦号标签）
+export const TAB_BEAT_WIDTH = 60             // 每拍宽度
+export const TAB_LEFT_MARGIN = 40            // 左侧留白（放弦号标签）
 const RIGHT_MARGIN = 16
 const TOP_MARGIN = 44             // 加高，为推弦标注留出空间
 const BOTTOM_MARGIN = 16
@@ -93,7 +93,7 @@ export function TabStaff({
 
     // 稳定布局：仅由已有音符决定宽度，用于计算画布总宽，防止光标移动时整体宽度抖动
     const stableMeasureLayout = useMemo(() => {
-        let x = LEFT_MARGIN
+        let x = TAB_LEFT_MARGIN
         return measures.map((m) => {
             const startX = x
             const tabNotes = m.tabNotes || []
@@ -102,7 +102,7 @@ export function TabStaff({
                 ? Math.max(...tabNotes.map(n => n.beat + (n.duration ?? 1)))
                 : 0
             const beatSpan = Math.max(1, Math.ceil(maxNoteEnd))
-            const width = beatSpan * BEAT_WIDTH
+            const width = beatSpan * TAB_BEAT_WIDTH
             x += width
             return { startX, width, beatSpan, measure: m }
         })
@@ -110,7 +110,7 @@ export function TabStaff({
 
     // 视觉布局：在稳定布局基础上，根据当前选中格子向右扩展小节空间（类似五线谱）
     const measureLayout = (() => {
-        let x = LEFT_MARGIN
+        let x = TAB_LEFT_MARGIN
         return measures.map((m) => {
             const stable = stableMeasureLayout.find(l => l.measure.index === m.index)
             const tabNotes = m.tabNotes || []
@@ -126,14 +126,14 @@ export function TabStaff({
             }
 
             const startX = x
-            const width = beatSpan * BEAT_WIDTH
+            const width = beatSpan * TAB_BEAT_WIDTH
             x += width
             return { startX, width, beatSpan, measure: m }
         })
     })()
 
-    const stableWidth = stableMeasureLayout.reduce((sum, l) => sum + l.width, LEFT_MARGIN) + RIGHT_MARGIN
-    const visualWidth = measureLayout.reduce((sum, l) => sum + l.width, LEFT_MARGIN) + RIGHT_MARGIN
+    const stableWidth = stableMeasureLayout.reduce((sum, l) => sum + l.width, TAB_LEFT_MARGIN) + RIGHT_MARGIN
+    const visualWidth = measureLayout.reduce((sum, l) => sum + l.width, TAB_LEFT_MARGIN) + RIGHT_MARGIN
     const totalWidth = Math.max(stableWidth, visualWidth)
     const staffHeight = (STRING_COUNT - 1) * LINE_SPACING
     const totalHeight = TOP_MARGIN + staffHeight + BOTTOM_MARGIN
@@ -145,7 +145,7 @@ export function TabStaff({
 
     // 拍的 X 坐标（拍中心）
     const beatX = useCallback((measureStartX: number, beat: number) => {
-        return measureStartX + beat * BEAT_WIDTH + BEAT_WIDTH / 2
+        return measureStartX + beat * TAB_BEAT_WIDTH + TAB_BEAT_WIDTH / 2
     }, [])
 
     // 处理点击
@@ -159,7 +159,7 @@ export function TabStaff({
             if (locationX >= layout.startX && locationX < mEndX) {
                 // 找到对应的拍
                 const relX = locationX - layout.startX
-                const beat = Math.floor(relX / BEAT_WIDTH)
+                const beat = Math.floor(relX / TAB_BEAT_WIDTH)
                 if (beat < 0 || beat >= layout.beatSpan) return
 
                 // 找到对应的弦
@@ -202,7 +202,7 @@ export function TabStaff({
                     return (
                         <Line
                             key={`string-${i}`}
-                            p1={vec(LEFT_MARGIN, y)}
+                            p1={vec(TAB_LEFT_MARGIN, y)}
                             p2={vec(totalWidth - RIGHT_MARGIN, y)}
                             color={LINE_COLOR}
                             strokeWidth={1}
@@ -243,17 +243,17 @@ export function TabStaff({
                     return (
                         <Group>
                             <RoundedRect
-                                x={cx - BEAT_WIDTH / 2 + 4}
+                                x={cx - TAB_BEAT_WIDTH / 2 + 4}
                                 y={cy - LINE_SPACING / 2 + 2}
-                                width={BEAT_WIDTH - 8}
+                                width={TAB_BEAT_WIDTH - 8}
                                 height={LINE_SPACING - 4}
                                 r={4}
                                 color={CURSOR_COLOR}
                             />
                             <RoundedRect
-                                x={cx - BEAT_WIDTH / 2 + 4}
+                                x={cx - TAB_BEAT_WIDTH / 2 + 4}
                                 y={cy - LINE_SPACING / 2 + 2}
-                                width={BEAT_WIDTH - 8}
+                                width={TAB_BEAT_WIDTH - 8}
                                 height={LINE_SPACING - 4}
                                 r={4}
                                 color={CURSOR_BORDER_COLOR}

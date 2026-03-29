@@ -1,7 +1,7 @@
 import React, { useState, useCallback, useRef, useEffect, useMemo } from "react"
 import { View, ScrollView, StyleSheet, Text, TouchableOpacity, Alert, ActivityIndicator, FlatList, LayoutChangeEvent, Platform, Modal, TextInput, Pressable } from "react-native"
 import { useRouter } from "expo-router"
-import { TabStaff } from "../../components/score/TabStaff"
+import { TabStaff, TAB_BEAT_WIDTH, TAB_LEFT_MARGIN } from "../../components/score/TabStaff"
 import { EditorToolbar } from "../../components/score/EditorToolbar"
 import { StaffNotation, BEAT_WIDTH, LEFT_MARGIN, STAFF_LINE_SPACING, staffPositionToPitch, ChordAnnotation } from "../../components/score/StaffNotation"
 import { StaffToolbar } from "../../components/score/StaffToolbar"
@@ -766,6 +766,17 @@ function TabNotationEditor({ onBack, initialScore, scoreId }: { onBack: () => vo
     const fretInputBufferRef = useRef<{ value: string; timer: number | null }>({ value: "", timer: null })
 
     const { playbackState, currentPosition, togglePlayPause, stop } = useScorePlayer(score)
+    const scrollViewRef = useRef<ScrollView>(null)
+    const [tabCanvasHeight, setTabCanvasHeight] = useState(0)
+
+    const tabCanvasHeightSet = useRef(false)
+    const handleTabScrollViewLayout = useCallback((e: LayoutChangeEvent) => {
+        const h = e.nativeEvent.layout.height
+        if (h > 0 && !tabCanvasHeightSet.current) {
+            tabCanvasHeightSet.current = true
+            setTabCanvasHeight(h)
+        }
+    }, [])
 
     const handleSave = useCallback(async (title: string) => {
         setSaving(true)
@@ -1100,6 +1111,32 @@ function TabNotationEditor({ onBack, initialScore, scoreId }: { onBack: () => vo
         })()
         : "点击六线谱选择位置"
 
+    const tabMeasureStartXs = useMemo(() => {
+        const result: number[] = []
+        let x = TAB_LEFT_MARGIN
+        for (const m of score.measures) {
+            result.push(x)
+            const tabNotes = m.tabNotes || []
+            const maxNoteEnd = tabNotes.length > 0
+                ? Math.max(...tabNotes.map(n => n.beat + (n.duration ?? 1)))
+                : 0
+            let beatSpan = Math.max(1, Math.ceil(maxNoteEnd))
+            if (selectedCell && selectedCell.measureIndex === m.index) {
+                beatSpan = Math.max(beatSpan, selectedCell.beat + 1)
+            }
+            x += beatSpan * TAB_BEAT_WIDTH
+        }
+        return result
+    }, [score.measures, selectedCell])
+
+    useEffect(() => {
+        if (currentPosition && scrollViewRef.current) {
+            const measureX = tabMeasureStartXs[currentPosition.measureIndex] ?? TAB_LEFT_MARGIN
+            const x = measureX + currentPosition.beat * TAB_BEAT_WIDTH
+            scrollViewRef.current.scrollTo({ x: Math.max(0, x - 150), animated: true })
+        }
+    }, [currentPosition, tabMeasureStartXs])
+
     return (
         <View style={styles.container}>
             <View style={styles.topBar}>
@@ -1171,17 +1208,39 @@ function TabNotationEditor({ onBack, initialScore, scoreId }: { onBack: () => vo
                 onSave={handleSave}
             />
             <ScrollView
+                ref={scrollViewRef}
                 horizontal
                 style={styles.scrollView}
                 contentContainerStyle={styles.scrollContent}
                 showsHorizontalScrollIndicator={true}
+                onLayout={handleTabScrollViewLayout}
             >
-                <TabStaff
-                    measures={score.measures}
-                    timeSignature={score.timeSignature}
-                    selectedCell={selectedCell}
-                    onCellSelect={handleCellSelect}
-                />
+                <View style={{ position: "relative" }}>
+                    <TabStaff
+                        measures={score.measures}
+                        timeSignature={score.timeSignature}
+                        selectedCell={selectedCell}
+                        onCellSelect={handleCellSelect}
+                    />
+                    {currentPosition && tabCanvasHeight > 0 && (() => {
+                        const measureX = tabMeasureStartXs[currentPosition.measureIndex] ?? TAB_LEFT_MARGIN
+                        const playbackX = measureX + currentPosition.beat * TAB_BEAT_WIDTH + TAB_BEAT_WIDTH / 2
+                        return (
+                            <View
+                                pointerEvents="none"
+                                style={{
+                                    position: "absolute",
+                                    left: 0,
+                                    top: 0,
+                                    width: 2,
+                                    height: tabCanvasHeight,
+                                    backgroundColor: "rgba(255,192,203, 0.5)",
+                                    transform: [{ translateX: playbackX - 1 }],
+                                }}
+                            />
+                        )
+                    })()}
+                </View>
             </ScrollView>
             <EditorToolbar
                 onFretInput={handleFretInput}
