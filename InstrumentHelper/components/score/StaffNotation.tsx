@@ -26,6 +26,9 @@ const NOTE_HEAD_RX = 7            // 符头水平半径
 const NOTE_HEAD_RY = 5.5          // 符头垂直半径
 const STEM_LENGTH = 30            // 符杆长度
 const STEM_WIDTH = 1.5
+const BEAM_THICKNESS = 5
+const BEAM_GAP = 8
+const BEAM_STUB_WIDTH = 12
 const LEDGER_LINE_HALF = 12       // 加线半宽
 const NOTE_FONT_SIZE = 14
 const CLEF_FONT_SIZE = 36
@@ -151,6 +154,20 @@ function getNoteAppearance(duration: number): NoteAppearance {
     if (duration >= 1) return { filled: true, hasStem: true, flags: 0 }    // 四分音符
     if (duration >= 0.5) return { filled: true, hasStem: true, flags: 1 }  // 八分音符
     return { filled: true, hasStem: true, flags: 2 }                       // 十六分音符
+}
+
+type BeamEvent = {
+    start: number
+    flags: number
+    stemX: number
+}
+
+type BeamGroup = {
+    key: string
+    noteKeys: string[]
+    stemUp: boolean
+    beamY: number
+    events: BeamEvent[]
 }
 
 // ─── 选中状态 ───
@@ -324,6 +341,106 @@ function StaffNotationComponent({
     const beatX = useCallback((measureStartX: number, beat: number, slotSize: number = 1) => {
         return measureStartX + beat * BEAT_WIDTH + slotSize * BEAT_WIDTH / 2
     }, [])
+
+    // 同一拍内的短时值音符按组连杆；同拍只有一个音时仍保留单独符尾
+    const beamGroups = useMemo(() => {
+        const measureStartXByIndex = new Map<number, number>()
+        for (const layout of measureLayout) {
+            measureStartXByIndex.set(layout.measure.index, layout.startX)
+        }
+
+        const groupedNotes = new Map<string, Array<{
+            noteKey: string
+            start: number
+            staffPos: number
+            y: number
+            duration: number
+            flags: number
+        }>>()
+
+        for (const layout of measureLayout) {
+            const notes = layout.measure.notes || []
+            for (let ni = 0; ni < notes.length; ni += 1) {
+                const note = notes[ni]
+                const appearance = getNoteAppearance(note.duration)
+                if (appearance.flags <= 0) continue
+
+                const staffPos = pitchToStaffPosition(note.pitch)
+                const noteClef = note.clef ?? getClefForStaffPos(staffPos)
+                const beatBucket = Math.floor(note.start + 1e-6)
+                const key = `${layout.measure.index}-${noteClef}-${beatBucket}`
+                const y = staffPosToY(staffPos, noteClef)
+                const current = groupedNotes.get(key) ?? []
+                current.push({
+                    noteKey: `${layout.measure.index}-${ni}`,
+                    start: note.start,
+                    staffPos,
+                    y,
+                    duration: note.duration,
+                    flags: appearance.flags,
+                })
+                groupedNotes.set(key, current)
+            }
+        }
+
+        const groups: BeamGroup[] = []
+        groupedNotes.forEach((groupNotes, key) => {
+            const measureIndex = parseInt(key.split("-")[0], 10)
+            const measureStartX = measureStartXByIndex.get(measureIndex) ?? LEFT_MARGIN
+            const eventMap = new Map<number, BeamEvent>()
+            for (const note of groupNotes) {
+                const existing = eventMap.get(note.start)
+                const cx = beatX(measureStartX, note.start, note.duration)
+                if (existing) {
+                    existing.flags = Math.max(existing.flags, note.flags)
+                } else {
+                    const isTreble = key.includes("-treble-")
+                    const firstLinePos = isTreble ? TREBLE_FIRST_LINE_POS : BASS_FIRST_LINE_POS
+                    const stemPivotPos = firstLinePos + 4
+                    const avgStaffPos = groupNotes.reduce((sum, item) => sum + item.staffPos, 0) / groupNotes.length
+                    const stemUp = avgStaffPos < stemPivotPos
+                    eventMap.set(note.start, {
+                        start: note.start,
+                        flags: note.flags,
+                        stemX: stemUp ? cx + NOTE_HEAD_RX - 1 : cx - NOTE_HEAD_RX + 1,
+                    })
+                }
+            }
+
+            const events = Array.from(eventMap.values()).sort((a, b) => a.start - b.start)
+            if (events.length < 2) return
+
+            const avgStaffPos = groupNotes.reduce((sum, note) => sum + note.staffPos, 0) / groupNotes.length
+            const isTreble = key.includes("-treble-")
+            const firstLinePos = isTreble ? TREBLE_FIRST_LINE_POS : BASS_FIRST_LINE_POS
+            const stemPivotPos = firstLinePos + 4
+            const stemUp = avgStaffPos < stemPivotPos
+            const noteYs = groupNotes.map(note => note.y)
+            const beamY = stemUp
+                ? Math.min(...noteYs) - STEM_LENGTH
+                : Math.max(...noteYs) + STEM_LENGTH
+
+            groups.push({
+                key,
+                noteKeys: groupNotes.map(note => note.noteKey),
+                stemUp,
+                beamY,
+                events,
+            })
+        })
+
+        return groups
+    }, [beatX, measureLayout, staffPosToY])
+
+    const beamedNoteKeys = useMemo(() => {
+        const keys = new Set<string>()
+        for (const group of beamGroups) {
+            for (const noteKey of group.noteKeys) {
+                keys.add(noteKey)
+            }
+        }
+        return keys
+    }, [beamGroups])
 
     // 用于在 handlePress 中将 locationY 换算成 staffPos
     const trebleFirstLineYRef = useRef(0)
@@ -583,6 +700,66 @@ function StaffNotationComponent({
                 })()}
 
                 {/* ─── 音符渲染 ─── */}
+                {beamGroups.map((group) => {
+                    const beamOffsetDir = group.stemUp ? 1 : -1
+                    const beamBaseY = group.beamY
+                    const maxFlags = Math.max(...group.events.map(event => event.flags))
+
+                    return (
+                        <Group key={`beam-group-${group.key}`}>
+                            {Array.from({ length: maxFlags }).map((_, level) => {
+                                const segments: BeamEvent[][] = []
+                                let currentSegment: BeamEvent[] = []
+
+                                for (const event of group.events) {
+                                    if (event.flags > level) {
+                                        currentSegment.push(event)
+                                    } else if (currentSegment.length > 0) {
+                                        segments.push(currentSegment)
+                                        currentSegment = []
+                                    }
+                                }
+                                if (currentSegment.length > 0) {
+                                    segments.push(currentSegment)
+                                }
+
+                                return segments.map((segment, segmentIndex) => {
+                                    const y = beamBaseY + level * BEAM_GAP * beamOffsetDir
+                                    if (segment.length === 1) {
+                                        const event = segment[0]
+                                        const beamStartX = group.stemUp ? event.stemX : event.stemX - BEAM_STUB_WIDTH
+                                        const beamEndX = group.stemUp ? event.stemX + BEAM_STUB_WIDTH : event.stemX
+                                        const beamTopY = group.stemUp ? y : y - BEAM_THICKNESS
+                                        return (
+                                            <Rect
+                                                key={`beam-${group.key}-${level}-${segmentIndex}`}
+                                                x={beamStartX}
+                                                y={beamTopY}
+                                                width={beamEndX - beamStartX}
+                                                height={BEAM_THICKNESS}
+                                                color={NOTE_COLOR}
+                                            />
+                                        )
+                                    }
+
+                                    const first = segment[0]
+                                    const last = segment[segment.length - 1]
+                                    const beamTopY = group.stemUp ? y : y - BEAM_THICKNESS
+                                    return (
+                                        <Rect
+                                            key={`beam-${group.key}-${level}-${segmentIndex}`}
+                                            x={first.stemX}
+                                            y={beamTopY}
+                                            width={last.stemX - first.stemX}
+                                            height={BEAM_THICKNESS}
+                                            color={NOTE_COLOR}
+                                        />
+                                    )
+                                })
+                            })}
+                        </Group>
+                    )
+                })}
                 {measureLayout.map((layout) => {
                     const notes = layout.measure.notes || []
                     return notes.map((note, ni) => {
@@ -599,7 +776,9 @@ function StaffNotationComponent({
                         // 符杆方向：同拍同谱号统一；否则按自身音高决定
                         const stemPivotPos = firstLinePos + 4
                         const stemKey = `${layout.measure.index}-${note.start}-${noteClef}`
-                        const stemUp = stemDirectionByBeat.get(stemKey) ?? (staffPos < stemPivotPos)
+                        const noteKey = `${layout.measure.index}-${ni}`
+                        const beamGroup = beamGroups.find(group => group.noteKeys.includes(noteKey))
+                        const stemUp = beamGroup?.stemUp ?? stemDirectionByBeat.get(stemKey) ?? (staffPos < stemPivotPos)
 
                         return (
                             <Group key={`note-${layout.measure.index}-${ni}`}>
@@ -642,20 +821,22 @@ function StaffNotationComponent({
                                 {/* 符杆（用 Rect 替代 Line，避免 Skia web 的 strokeWidth 渲染问题） */}
                                 {appearance.hasStem && (() => {
                                     const stemX = (stemUp ? cx + NOTE_HEAD_RX - 1 : cx - NOTE_HEAD_RX + 1) - STEM_WIDTH / 2
-                                    const stemY = stemUp ? cy - STEM_LENGTH : cy
+                                    const stemEndY = beamGroup?.beamY ?? (stemUp ? cy - STEM_LENGTH : cy + STEM_LENGTH)
+                                    const stemY = Math.min(cy, stemEndY)
+                                    const stemHeight = Math.abs(stemEndY - cy)
                                     return (
                                         <Rect
                                             x={stemX}
                                             y={stemY}
                                             width={STEM_WIDTH}
-                                            height={STEM_LENGTH}
+                                            height={stemHeight}
                                             color={NOTE_COLOR}
                                         />
                                     )
                                 })()}
 
                                 {/* 符尾（八分音符及更短） */}
-                                {appearance.flags > 0 && (() => {
+                                {appearance.flags > 0 && !beamedNoteKeys.has(noteKey) && (() => {
                                     const stemX = stemUp ? cx + NOTE_HEAD_RX - 1 : cx - NOTE_HEAD_RX + 1
                                     const stemEndY = stemUp ? cy - STEM_LENGTH : cy + STEM_LENGTH
                                     const flagDir = stemUp ? 1 : -1

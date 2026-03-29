@@ -24,6 +24,10 @@ const BOTTOM_MARGIN = 16
 const BARLINE_EXTEND = 0          // 小节线上下延伸
 const NOTE_FONT_SIZE = 16
 const STEM_LENGTH = 26         // 品位数字下方的“音符杆”长度
+const STEM_WIDTH = 2
+const BEAM_THICKNESS = 5
+const BEAM_GAP = 8
+const BEAM_STUB_WIDTH = 12
 const LABEL_FONT_SIZE = 12
 const CURSOR_COLOR = "rgba(59, 130, 246, 0.3)"   // 选中格高亮
 const CURSOR_BORDER_COLOR = "rgba(59, 130, 246, 0.8)"
@@ -46,6 +50,19 @@ function bendLabel(bend: number): string {
 
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const fontFile = require("../../assets/FiraCode-VariableFont_wght.ttf")
+
+type TabBeamEvent = {
+    actualStart: number
+    flags: number
+    x: number
+}
+
+type TabBeamGroup = {
+    key: string
+    noteKeys: string[]
+    beamY: number
+    events: TabBeamEvent[]
+}
 
 type SelectedCell = {
     measureIndex: number
@@ -144,9 +161,110 @@ export function TabStaff({
     }, [])
 
     // 拍的 X 坐标（拍中心）
-    const beatX = useCallback((measureStartX: number, beat: number) => {
-        return measureStartX + beat * TAB_BEAT_WIDTH + TAB_BEAT_WIDTH / 2
+    const beatX = useCallback((measureStartX: number, beat: number, slotSize: number = 1) => {
+        return measureStartX + beat * TAB_BEAT_WIDTH + TAB_BEAT_WIDTH * slotSize / 2
     }, [])
+
+    const beamGroups = useMemo(() => {
+        const measureStartXByIndex = new Map<number, number>()
+        const actualStartByMeasureAndBeat = new Map<string, number>()
+        for (const layout of measureLayout) {
+            measureStartXByIndex.set(layout.measure.index, layout.startX)
+            const tabNotes = layout.measure.tabNotes || []
+            const slotDurationByBeat = new Map<number, number>()
+            for (const note of tabNotes) {
+                const duration = note.duration ?? 1
+                const prev = slotDurationByBeat.get(note.beat) ?? 0
+                if (duration > prev) {
+                    slotDurationByBeat.set(note.beat, duration)
+                }
+            }
+
+            let actualStart = 0
+            const orderedBeats = Array.from(slotDurationByBeat.keys()).sort((a, b) => a - b)
+            for (const beat of orderedBeats) {
+                actualStartByMeasureAndBeat.set(`${layout.measure.index}-${beat}`, actualStart)
+                actualStart += slotDurationByBeat.get(beat) ?? 0
+            }
+        }
+
+        const groupedNotes = new Map<string, Array<{
+            noteKey: string
+            beat: number
+            actualStart: number
+            cy: number
+            duration: number
+            flags: number
+        }>>()
+
+        for (const layout of measureLayout) {
+            const tabNotes = layout.measure.tabNotes || []
+            for (let ni = 0; ni < tabNotes.length; ni += 1) {
+                const note = tabNotes[ni]
+                const duration = note.duration ?? 1
+                const appearance = getTabNoteAppearance(duration)
+                if (appearance.flags <= 0) continue
+
+                const actualStart = actualStartByMeasureAndBeat.get(`${layout.measure.index}-${note.beat}`) ?? note.beat
+                const beatBucket = Math.floor(actualStart + 1e-6)
+                const key = `${layout.measure.index}-${beatBucket}`
+                const current = groupedNotes.get(key) ?? []
+                current.push({
+                    noteKey: `${layout.measure.index}-${ni}`,
+                    beat: note.beat,
+                    actualStart,
+                    cy: stringY(note.string),
+                    duration,
+                    flags: appearance.flags,
+                })
+                groupedNotes.set(key, current)
+            }
+        }
+
+        const groups: TabBeamGroup[] = []
+        groupedNotes.forEach((groupNotes, key) => {
+            const measureIndex = parseInt(key.split("-")[0], 10)
+            const measureStartX = measureStartXByIndex.get(measureIndex) ?? TAB_LEFT_MARGIN
+            const eventMap = new Map<number, TabBeamEvent>()
+            for (const note of groupNotes) {
+                const existing = eventMap.get(note.beat)
+                const x = beatX(measureStartX, note.beat, note.duration)
+                if (existing) {
+                    existing.flags = Math.max(existing.flags, note.flags)
+                } else {
+                    eventMap.set(note.beat, {
+                        actualStart: note.actualStart,
+                        flags: note.flags,
+                        x,
+                    })
+                }
+            }
+
+            const events = Array.from(eventMap.values()).sort((a, b) => a.actualStart - b.actualStart)
+            if (events.length < 2) return
+
+            const noteBottomYs = groupNotes.map(note => note.cy + NOTE_FONT_SIZE / 2 + 2)
+            const beamY = Math.max(...noteBottomYs) + STEM_LENGTH
+            groups.push({
+                key,
+                noteKeys: groupNotes.map(note => note.noteKey),
+                beamY,
+                events,
+            })
+        })
+
+        return groups
+    }, [beatX, getTabNoteAppearance, measureLayout, stringY])
+
+    const beamedNoteKeys = useMemo(() => {
+        const keys = new Set<string>()
+        for (const group of beamGroups) {
+            for (const noteKey of group.noteKeys) {
+                keys.add(noteKey)
+            }
+        }
+        return keys
+    }, [beamGroups])
 
     // 处理点击
     const handlePress = useCallback((evt: { nativeEvent: { locationX: number; locationY: number } }) => {
@@ -264,18 +382,73 @@ export function TabStaff({
                     )
                 })()}
 
+                {beamGroups.map((group) => {
+                    const maxFlags = Math.max(...group.events.map(event => event.flags))
+                    return (
+                        <Group key={`tab-beam-group-${group.key}`}>
+                            {Array.from({ length: maxFlags }).map((_, level) => {
+                                const segments: TabBeamEvent[][] = []
+                                let currentSegment: TabBeamEvent[] = []
+
+                                for (const event of group.events) {
+                                    if (event.flags > level) {
+                                        currentSegment.push(event)
+                                    } else if (currentSegment.length > 0) {
+                                        segments.push(currentSegment)
+                                        currentSegment = []
+                                    }
+                                }
+                                if (currentSegment.length > 0) {
+                                    segments.push(currentSegment)
+                                }
+
+                                return segments.map((segment, segmentIndex) => {
+                                    const beamTopY = group.beamY + level * BEAM_GAP
+                                    if (segment.length === 1) {
+                                        const event = segment[0]
+                                        return (
+                                            <Rect
+                                                key={`tab-beam-${group.key}-${level}-${segmentIndex}`}
+                                                x={event.x}
+                                                y={beamTopY}
+                                                width={BEAM_STUB_WIDTH}
+                                                height={BEAM_THICKNESS}
+                                                color={NOTE_TEXT_COLOR}
+                                            />
+                                        )
+                                    }
+
+                                    const first = segment[0]
+                                    const last = segment[segment.length - 1]
+                                    return (
+                                        <Rect
+                                            key={`tab-beam-${group.key}-${level}-${segmentIndex}`}
+                                            x={first.x}
+                                            y={beamTopY}
+                                            width={last.x - first.x}
+                                            height={BEAM_THICKNESS}
+                                            color={NOTE_TEXT_COLOR}
+                                        />
+                                    )
+                                })
+                            })}
+                        </Group>
+                    )
+                })}
+
                 {/* ─── 音符（品位数字 + 下方“杆”表示时值） ─── */}
                 {measureLayout.map((layout) => {
                     const tabNotes = layout.measure.tabNotes || []
                     return tabNotes.map((note, ni) => {
-                        const cx = beatX(layout.startX, note.beat)
+                        const duration = note.duration ?? 1
+                        const cx = beatX(layout.startX, note.beat, duration)
                         const cy = stringY(note.string)
                         const text = note.fret.toString()
                         // 估算文本宽度：单个数字约 10px，两位数约 18px
                         const textWidth = text.length === 1 ? 10 : 18
-                        // 六线谱自身的时值（若未设置则默认 1 拍）
-                        const duration = note.duration ?? 1
                         const appearance = getTabNoteAppearance(duration)
+                        const noteKey = `${layout.measure.index}-${ni}`
+                        const beamGroup = beamGroups.find(group => group.noteKeys.includes(noteKey))
 
                         // 推弦可视化参数
                         const hasBend = !!note.bend && note.bend > 0
@@ -337,18 +510,18 @@ export function TabStaff({
                                 {appearance.showStem && (() => {
                                     const stemTopY = cy + NOTE_FONT_SIZE / 2 + 2
                                     const stemX = cx - 1
-                                    const stemHeight = appearance.stemLength
-                                    const stemBottomY = stemTopY + stemHeight
+                                    const stemBottomY = beamGroup?.beamY ?? (stemTopY + appearance.stemLength)
+                                    const stemHeight = stemBottomY - stemTopY
                                     return (
                                         <Group>
                                             <Rect
                                                 x={stemX}
                                                 y={stemTopY}
-                                                width={2}
+                                                width={STEM_WIDTH}
                                                 height={stemHeight}
                                                 color={NOTE_TEXT_COLOR}
                                             />
-                                            {appearance.flags > 0 && Array.from({ length: appearance.flags }).map((_, fi) => {
+                                            {appearance.flags > 0 && !beamedNoteKeys.has(noteKey) && Array.from({ length: appearance.flags }).map((_, fi) => {
                                                 const offset = fi * 6
                                                 const fy = stemBottomY + offset
                                                 // 小尾巴向上弯：控制点与终点的 y 坐标比起点更小
