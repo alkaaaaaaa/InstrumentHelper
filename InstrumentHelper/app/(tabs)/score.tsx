@@ -964,6 +964,12 @@ function TabNotationEditor({ onBack, initialScore, scoreId }: { onBack: () => vo
 
         const handleKeyDown = (e: KeyboardEvent) => {
             if (saveModalVisible || isTypingElement(e.target)) return
+            // 六线谱中禁用 Enter，避免触发焦点控件的默认行为导致异常
+            if (e.key === "Enter") {
+                e.preventDefault()
+                e.stopPropagation()
+                return
+            }
             // 数字键 0-9 组合成 0–24 品位
             if (e.key >= "0" && e.key <= "9") {
                 e.preventDefault()
