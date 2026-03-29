@@ -60,6 +60,20 @@ function normalizePitch(pitch: string): string {
   return `${normalized}${match[2]}`
 }
 
+function getPreferredStaffNotes(measure: Measure, currentBeat?: number | null) {
+  const matchingNotes = (measure.notes ?? []).filter((note) =>
+    currentBeat == null || (note.start <= currentBeat && currentBeat < note.start + note.duration)
+  )
+
+  const bassNotes = matchingNotes.filter((note) => note.clef === "bass")
+  if (bassNotes.length > 0) return bassNotes
+
+  const trebleNotes = matchingNotes.filter((note) => note.clef === "treble")
+  if (trebleNotes.length > 0) return trebleNotes
+
+  return matchingNotes
+}
+
 type ViewMode = "keyboard" | "fretboard"
 
 type Props = {
@@ -79,6 +93,10 @@ export function ChordScaleModal({ visible, onClose, measure, tuning, measureInde
   const [error, setError] = useState<string | null>(null)
 
   const effectiveTuning = tuning?.length ? tuning : DEFAULT_TUNING
+  const preferredStaffNotes = useMemo(() => {
+    if (!measure) return []
+    return getPreferredStaffNotes(measure, currentBeat)
+  }, [measure, currentBeat])
 
   // Full pitches WITH octave of notes sounding at currentBeat (e.g. "C4", "D#3")
   const playingFullPitches = useMemo(() => {
@@ -86,16 +104,15 @@ export function ChordScaleModal({ visible, onClose, measure, tuning, measureInde
     const noteFilter = (start: number, duration: number) =>
       currentBeat == null || (start <= currentBeat && currentBeat < start + duration)
 
-    const fromNotes = (measure.notes ?? [])
+    const fromNotes = preferredStaffNotes
       .filter(n => noteFilter(n.start, n.duration))
       .map(n => normalizePitch(n.pitch))
 
     const fromTab = (measure.tabNotes ?? [])
       .filter(n => noteFilter(n.beat, n.duration ?? 1))
       .map(n => fretToFullPitch(n.string, n.fret, effectiveTuning))
-
     return [...new Set([...fromNotes, ...fromTab])]
-  }, [measure, effectiveTuning, currentBeat])
+  }, [measure, effectiveTuning, currentBeat, preferredStaffNotes])
 
   // Specific (string, fret) positions sounding at currentBeat (or all tab notes)
   const playingTabPositions = useMemo(() => {
@@ -115,7 +132,7 @@ export function ChordScaleModal({ visible, onClose, measure, tuning, measureInde
     setResult(null)
     try {
       const data = await scoreApi.analyzeChord({
-        notes: measure.notes,
+        notes: preferredStaffNotes,
         tabNotes: measure.tabNotes,
         tuning: effectiveTuning,
       })
@@ -125,7 +142,7 @@ export function ChordScaleModal({ visible, onClose, measure, tuning, measureInde
     } finally {
       setLoading(false)
     }
-  }, [measure, effectiveTuning])
+  }, [measure, effectiveTuning, preferredStaffNotes])
 
   useEffect(() => {
     if (visible && measure) {

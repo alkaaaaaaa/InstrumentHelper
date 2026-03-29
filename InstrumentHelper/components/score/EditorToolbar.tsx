@@ -1,5 +1,5 @@
 import React from "react"
-import { View, Text, TouchableOpacity, StyleSheet } from "react-native"
+import { View, Text, TouchableOpacity, StyleSheet, ScrollView } from "react-native"
 
 type Props = {
     onFretInput: (fret: number) => void
@@ -37,6 +37,20 @@ export function EditorToolbar({
     currentBend,
     onBendChange,
 }: Props) {
+    const renderRow = (label: string, content: React.ReactNode) => (
+        <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            style={styles.rowScroll}
+            contentContainerStyle={styles.rowScrollContent}
+        >
+            <View style={styles.row}>
+                <Text style={styles.sectionLabel}>{label}</Text>
+                {content}
+            </View>
+        </ScrollView>
+    )
+
     return (
         <View style={styles.container}>
             {/* 选中信息 */}
@@ -45,9 +59,7 @@ export function EditorToolbar({
             </View>
 
             {/* 时值选择 */}
-            <View style={styles.row}>
-                <Text style={styles.sectionLabel}>时值</Text>
-                {[
+            {renderRow("时值", [
                     { label: "全", value: 4 },
                     { label: "二分", value: 2 },
                     { label: "四分", value: 1 },
@@ -71,13 +83,10 @@ export function EditorToolbar({
                             {d.label}
                         </Text>
                     </TouchableOpacity>
-                ))}
-            </View>
+                )))}
 
             {/* 推弦 */}
-            <View style={styles.row}>
-                <Text style={styles.sectionLabel}>推弦</Text>
-                {BEND_OPTIONS.map(b => (
+            {renderRow("推弦", BEND_OPTIONS.map(b => (
                     <TouchableOpacity
                         key={`bend-${b.value}`}
                         style={[
@@ -93,30 +102,26 @@ export function EditorToolbar({
                             {b.label}
                         </Text>
                     </TouchableOpacity>
-                ))}
-            </View>
+                )))}
 
             {/* 方向键 */}
-            <View style={styles.row}>
-                <Text style={styles.sectionLabel}>移动</Text>
-                <TouchableOpacity style={styles.navBtn} onPress={onMoveUp}>
+            {renderRow("移动", [
+                <TouchableOpacity key="move-up" style={styles.navBtn} onPress={onMoveUp}>
                     <Text style={styles.navBtnText}>▲</Text>
-                </TouchableOpacity>
-                <TouchableOpacity style={styles.navBtn} onPress={onMoveDown}>
+                </TouchableOpacity>,
+                <TouchableOpacity key="move-down" style={styles.navBtn} onPress={onMoveDown}>
                     <Text style={styles.navBtnText}>▼</Text>
-                </TouchableOpacity>
-                <TouchableOpacity style={styles.navBtn} onPress={onMoveLeft}>
+                </TouchableOpacity>,
+                <TouchableOpacity key="move-left" style={styles.navBtn} onPress={onMoveLeft}>
                     <Text style={styles.navBtnText}>◀</Text>
-                </TouchableOpacity>
-                <TouchableOpacity style={styles.navBtn} onPress={onMoveRight}>
+                </TouchableOpacity>,
+                <TouchableOpacity key="move-right" style={styles.navBtn} onPress={onMoveRight}>
                     <Text style={styles.navBtnText}>▶</Text>
-                </TouchableOpacity>
-            </View>
+                </TouchableOpacity>,
+            ])}
 
             {/* 品位数字输入 0-9 */}
-            <View style={styles.row}>
-                <Text style={styles.sectionLabel}>品位</Text>
-                {Array.from({ length: 10 }).map((_, i) => (
+            {renderRow("品位", Array.from({ length: 10 }).map((_, i) => (
                     <TouchableOpacity
                         key={`fret-${i}`}
                         style={styles.fretBtn}
@@ -124,13 +129,10 @@ export function EditorToolbar({
                     >
                         <Text style={styles.fretBtnText}>{i}</Text>
                     </TouchableOpacity>
-                ))}
-            </View>
+                )))}
 
             {/* 高品位 10-19 */}
-            <View style={styles.row}>
-                <Text style={styles.sectionLabel}>高品</Text>
-                {Array.from({ length: 10 }).map((_, i) => (
+            {renderRow("高品", Array.from({ length: 10 }).map((_, i) => (
                     <TouchableOpacity
                         key={`fret-${i + 10}`}
                         style={[styles.fretBtn, styles.fretBtnHigh]}
@@ -138,19 +140,17 @@ export function EditorToolbar({
                     >
                         <Text style={styles.fretBtnText}>{i + 10}</Text>
                     </TouchableOpacity>
-                ))}
-            </View>
+                )))}
 
             {/* 操作按钮 */}
-            <View style={styles.row}>
-                <Text style={styles.sectionLabel}>操作</Text>
-                <TouchableOpacity style={styles.actionBtn} onPress={onDelete}>
+            {renderRow("操作", [
+                <TouchableOpacity key="delete" style={styles.actionBtn} onPress={onDelete}>
                     <Text style={styles.actionBtnText}>删除</Text>
-                </TouchableOpacity>
-                <TouchableOpacity style={[styles.actionBtn, styles.addBtn]} onPress={onAddMeasure}>
+                </TouchableOpacity>,
+                <TouchableOpacity key="add-measure" style={[styles.actionBtn, styles.addBtn]} onPress={onAddMeasure}>
                     <Text style={styles.addBtnText}>+ 小节</Text>
-                </TouchableOpacity>
-            </View>
+                </TouchableOpacity>,
+            ])}
         </View>
     )
 }
@@ -173,17 +173,22 @@ const styles = StyleSheet.create({
         color: "#6b7280",
         fontFamily: "monospace",
     },
+    rowScroll: {
+        marginBottom: 6,
+    },
+    rowScrollContent: {
+        paddingRight: 12,
+    },
     row: {
         flexDirection: "row",
         alignItems: "center",
-        marginBottom: 6,
-        flexWrap: "wrap",
+        minHeight: 40,
     },
     sectionLabel: {
         fontSize: 11,
         color: "#9ca3af",
-        width: 32,
-        marginRight: 4,
+        width: 36,
+        marginRight: 8,
     },
     navBtn: {
         width: 36,

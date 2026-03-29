@@ -19,11 +19,14 @@ const DURATIONS = [
 
 type Props = {
     onNoteInput: (pitch: string, duration: number) => void
+    onConfirmAdd: () => void
     onDelete: () => void
     onAddMeasure: () => void
     onMoveLeft: () => void
     onMoveRight: () => void
     selectedInfo: string
+    confirmLabel: string
+    canConfirmAdd: boolean
     currentOctave: number
     onOctaveChange: (octave: number) => void
     currentDuration: number
@@ -34,11 +37,14 @@ type Props = {
 
 export function StaffToolbar({
     onNoteInput,
+    onConfirmAdd,
     onDelete,
     onAddMeasure,
     onMoveLeft,
     onMoveRight,
     selectedInfo,
+    confirmLabel,
+    canConfirmAdd,
     currentOctave,
     onOctaveChange,
     currentDuration,
@@ -46,6 +52,20 @@ export function StaffToolbar({
     currentAccidental,
     onAccidentalChange,
 }: Props) {
+    const renderRow = (label: string, content: React.ReactNode) => (
+        <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            style={styles.rowScroll}
+            contentContainerStyle={styles.rowScrollContent}
+        >
+            <View style={styles.row}>
+                <Text style={styles.sectionLabel}>{label}</Text>
+                {content}
+            </View>
+        </ScrollView>
+    )
+
     return (
         <View style={styles.container}>
             {/* 选中信息 */}
@@ -54,9 +74,7 @@ export function StaffToolbar({
             </View>
 
             {/* 时值选择 */}
-            <View style={styles.row}>
-                <Text style={styles.sectionLabel}>时值</Text>
-                {DURATIONS.map((d) => (
+            {renderRow("时值", DURATIONS.map((d) => (
                     <TouchableOpacity
                         key={`dur-${d.value}`}
                         style={[
@@ -72,13 +90,10 @@ export function StaffToolbar({
                             {d.name}
                         </Text>
                     </TouchableOpacity>
-                ))}
-            </View>
+                )))}
 
             {/* 八度选择 */}
-            <View style={styles.row}>
-                <Text style={styles.sectionLabel}>八度</Text>
-                {OCTAVES.map((oct) => (
+            {renderRow("八度", OCTAVES.map((oct) => (
                     <TouchableOpacity
                         key={`oct-${oct}`}
                         style={[
@@ -94,13 +109,10 @@ export function StaffToolbar({
                             {oct}
                         </Text>
                     </TouchableOpacity>
-                ))}
-            </View>
+                )))}
 
             {/* 升降号选择 */}
-            <View style={styles.row}>
-                <Text style={styles.sectionLabel}>变音</Text>
-                {ACCIDENTALS.map((a) => (
+            {renderRow("变音", ACCIDENTALS.map((a) => (
                     <TouchableOpacity
                         key={`acc-${a.value}`}
                         style={[
@@ -116,13 +128,10 @@ export function StaffToolbar({
                             {a.label}
                         </Text>
                     </TouchableOpacity>
-                ))}
-            </View>
+                )))}
 
             {/* 音名输入 */}
-            <View style={styles.row}>
-                <Text style={styles.sectionLabel}>音名</Text>
-                {NOTE_NAMES.map((name) => (
+            {renderRow("音名", NOTE_NAMES.map((name) => (
                     <TouchableOpacity
                         key={`note-${name}`}
                         style={styles.noteBtn}
@@ -130,25 +139,35 @@ export function StaffToolbar({
                     >
                         <Text style={styles.noteBtnText}>{name}</Text>
                     </TouchableOpacity>
-                ))}
-            </View>
+                )))}
 
             {/* 导航和操作 */}
-            <View style={styles.row}>
-                <Text style={styles.sectionLabel}>操作</Text>
-                <TouchableOpacity style={styles.navBtn} onPress={onMoveLeft}>
+            {renderRow("操作", [
+                <TouchableOpacity
+                    key="confirm-add"
+                    style={[
+                        styles.actionBtn,
+                        styles.confirmBtn,
+                        !canConfirmAdd && styles.actionBtnDisabled,
+                    ]}
+                    onPress={onConfirmAdd}
+                    disabled={!canConfirmAdd}
+                >
+                    <Text style={styles.actionBtnText}>{confirmLabel}</Text>
+                </TouchableOpacity>,
+                <TouchableOpacity key="move-left" style={styles.navBtn} onPress={onMoveLeft}>
                     <Text style={styles.navBtnText}>◀</Text>
-                </TouchableOpacity>
-                <TouchableOpacity style={styles.navBtn} onPress={onMoveRight}>
+                </TouchableOpacity>,
+                <TouchableOpacity key="move-right" style={styles.navBtn} onPress={onMoveRight}>
                     <Text style={styles.navBtnText}>▶</Text>
-                </TouchableOpacity>
-                <TouchableOpacity style={styles.actionBtn} onPress={onDelete}>
+                </TouchableOpacity>,
+                <TouchableOpacity key="delete" style={styles.actionBtn} onPress={onDelete}>
                     <Text style={styles.actionBtnText}>删除</Text>
-                </TouchableOpacity>
-                <TouchableOpacity style={[styles.actionBtn, styles.addBtn]} onPress={onAddMeasure}>
+                </TouchableOpacity>,
+                <TouchableOpacity key="add-measure" style={[styles.actionBtn, styles.addBtn]} onPress={onAddMeasure}>
                     <Text style={styles.addBtnText}>+ 小节</Text>
-                </TouchableOpacity>
-            </View>
+                </TouchableOpacity>,
+            ])}
         </View>
     )
 }
@@ -171,17 +190,22 @@ const styles = StyleSheet.create({
         color: "#6b7280",
         fontFamily: "monospace",
     },
+    rowScroll: {
+        marginBottom: 6,
+    },
+    rowScrollContent: {
+        paddingRight: 12,
+    },
     row: {
         flexDirection: "row",
         alignItems: "center",
-        marginBottom: 6,
-        flexWrap: "wrap",
+        minHeight: 40,
     },
     sectionLabel: {
         fontSize: 11,
         color: "#9ca3af",
-        width: 32,
-        marginRight: 4,
+        width: 36,
+        marginRight: 8,
     },
     durationBtn: {
         paddingHorizontal: 12,
@@ -269,10 +293,16 @@ const styles = StyleSheet.create({
         alignItems: "center",
         marginRight: 8,
     },
+    actionBtnDisabled: {
+        opacity: 0.5,
+    },
     actionBtnText: {
         fontSize: 13,
         fontWeight: "600",
         color: "#ffffff",
+    },
+    confirmBtn: {
+        backgroundColor: "#16a34a",
     },
     addBtn: {
         backgroundColor: "#3b82f6",

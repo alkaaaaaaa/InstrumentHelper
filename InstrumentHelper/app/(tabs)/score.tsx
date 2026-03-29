@@ -1,6 +1,7 @@
 import React, { useState, useCallback, useRef, useEffect, useMemo } from "react"
-import { View, ScrollView, StyleSheet, Text, TouchableOpacity, Alert, ActivityIndicator, FlatList, LayoutChangeEvent, Platform, Modal, TextInput, Pressable } from "react-native"
+import { View, ScrollView, StyleSheet, Text, TouchableOpacity, Alert, ActivityIndicator, FlatList, LayoutChangeEvent, Platform, Modal, TextInput, Pressable, KeyboardAvoidingView, useWindowDimensions } from "react-native"
 import { useRouter } from "expo-router"
+import { SafeAreaView } from "react-native-safe-area-context"
 import { TabStaff, TAB_BEAT_WIDTH, TAB_LEFT_MARGIN } from "../../components/score/TabStaff"
 import { EditorToolbar } from "../../components/score/EditorToolbar"
 import { StaffNotation, BEAT_WIDTH, LEFT_MARGIN, STAFF_LINE_SPACING, staffPositionToPitch, ChordAnnotation } from "../../components/score/StaffNotation"
@@ -211,6 +212,8 @@ const emptyScore: ScoreType = {
 
 function StaffNotationView({ onBack, initialScore, scoreId }: { onBack: () => void; initialScore?: ScoreType; scoreId?: string }) {
     const router = useRouter()
+    const { width } = useWindowDimensions()
+    const compactLayout = width < 820
     const [score, setScore] = useState<ScoreType>(initialScore || emptyScore)
     const [currentScoreId, setCurrentScoreId] = useState<string | undefined>(scoreId)
     const [saving, setSaving] = useState(false)
@@ -485,6 +488,8 @@ function StaffNotationView({ onBack, initialScore, scoreId }: { onBack: () => vo
     }, [beatsPerMeasure, score.measures, selectedNote, seekTo])
 
     useEffect(() => {
+        if (Platform.OS !== "web") return
+
         const handleKeyDown = (e: KeyboardEvent) => {
             if (saveModalVisible || isTypingElement(e.target)) return
             // 仅处理我们关心的按键
@@ -529,9 +534,13 @@ function StaffNotationView({ onBack, initialScore, scoreId }: { onBack: () => vo
 
     const accidentalLabel = currentAccidental === "#" ? "♯" : currentAccidental === "b" ? "♭" : ""
     const currentPitchLabel = staffPositionToPitch(selectedStaffPos, currentAccidental)
+    const handleConfirmAdd = useCallback(() => {
+        if (!selectedNote) return
+        handleNoteInput(currentPitchLabel, currentDuration)
+    }, [currentDuration, currentPitchLabel, handleNoteInput, selectedNote])
     const selectedInfo = selectedNote
         ? `小节 ${selectedNote.measureIndex + 1} | 拍 ${selectedNote.beat + 1} | 音高 ${currentPitchLabel} | 时值 ${currentDuration}${accidentalLabel ? ` | ${accidentalLabel}` : ""}`
-        : "点击五线谱选择位置，用 ↑↓ 调整音高，Enter 添加音符"
+        : "点击五线谱选择位置，再点确认添加音符"
 
     // 每个小节的动态起始 X（与 StaffNotation 内部 measureLayout 保持一致）
     const measureStartXs = useMemo(() => {
@@ -561,15 +570,19 @@ function StaffNotationView({ onBack, initialScore, scoreId }: { onBack: () => vo
     }, [currentPosition, measureStartXs])
 
     return (
-        <View style={styles.container}>
-            <View style={styles.topBar}>
+        <SafeAreaView style={styles.container} edges={["top", "left", "right"]}>
+            <KeyboardAvoidingView
+                style={styles.container}
+                behavior={Platform.OS === "ios" ? "padding" : undefined}
+            >
+            <View style={[styles.topBar, compactLayout && styles.topBarCompact]}>
                 <TouchableOpacity style={styles.backButton} onPress={onBack}>
                     <Text style={styles.backButtonText}>← 返回</Text>
                 </TouchableOpacity>
                 <Text style={styles.scoreTitle} numberOfLines={1}>
                     {score.title || "未命名乐谱"}
                 </Text>
-                <View style={styles.playbackControls}>
+                <View style={[styles.playbackControls, compactLayout && styles.playbackControlsCompact]}>
                     <TouchableOpacity
                         style={[
                             styles.playBtn,
@@ -733,11 +746,14 @@ function StaffNotationView({ onBack, initialScore, scoreId }: { onBack: () => vo
             </ScrollView>
             <StaffToolbar
                 onNoteInput={handleNoteInput}
+                onConfirmAdd={handleConfirmAdd}
                 onDelete={handleDelete}
                 onAddMeasure={handleAddMeasure}
                 onMoveLeft={handleMoveLeft}
                 onMoveRight={handleMoveRight}
                 selectedInfo={selectedInfo}
+                confirmLabel={`确认 ${currentPitchLabel}`}
+                canConfirmAdd={!!selectedNote}
                 currentOctave={currentOctave}
                 onOctaveChange={setCurrentOctave}
                 currentDuration={currentDuration}
@@ -753,11 +769,14 @@ function StaffNotationView({ onBack, initialScore, scoreId }: { onBack: () => vo
                 measureIndex={currentPosition?.measureIndex ?? selectedNote?.measureIndex ?? 0}
                 currentBeat={currentPosition?.beat ?? selectedNote?.beat ?? null}
             />
-        </View>
+            </KeyboardAvoidingView>
+        </SafeAreaView>
     )
 }
 
 function TabNotationEditor({ onBack, initialScore, scoreId }: { onBack: () => void; initialScore?: ScoreType; scoreId?: string }) {
+    const { width } = useWindowDimensions()
+    const compactLayout = width < 820
     const [score, setScore] = useState<ScoreType>(initialScore || emptyScore)
     const [currentScoreId, setCurrentScoreId] = useState<string | undefined>(scoreId)
     const [saving, setSaving] = useState(false)
@@ -1015,6 +1034,8 @@ function TabNotationEditor({ onBack, initialScore, scoreId }: { onBack: () => vo
     }, [])
 
     useEffect(() => {
+        if (Platform.OS !== "web") return
+
         const flushBuffer = () => {
             const buf = fretInputBufferRef.current
             if (!buf.value) return
@@ -1165,15 +1186,19 @@ function TabNotationEditor({ onBack, initialScore, scoreId }: { onBack: () => vo
     }, [currentPosition, getTabPlaybackCenterX])
 
     return (
-        <View style={styles.container}>
-            <View style={styles.topBar}>
+        <SafeAreaView style={styles.container} edges={["top", "left", "right"]}>
+            <KeyboardAvoidingView
+                style={styles.container}
+                behavior={Platform.OS === "ios" ? "padding" : undefined}
+            >
+            <View style={[styles.topBar, compactLayout && styles.topBarCompact]}>
                 <TouchableOpacity style={styles.backButton} onPress={onBack}>
                     <Text style={styles.backButtonText}>← 返回</Text>
                 </TouchableOpacity>
                 <Text style={styles.scoreTitle} numberOfLines={1}>
                     {score.title || "未命名乐谱"}
                 </Text>
-                <View style={styles.playbackControls}>
+                <View style={[styles.playbackControls, compactLayout && styles.playbackControlsCompact]}>
                     <TouchableOpacity
                         style={[
                             styles.playBtn,
@@ -1290,11 +1315,14 @@ function TabNotationEditor({ onBack, initialScore, scoreId }: { onBack: () => vo
                 measureIndex={selectedCell?.measureIndex ?? 0}
                 currentBeat={selectedCell?.beat ?? null}
             />
-        </View>
+            </KeyboardAvoidingView>
+        </SafeAreaView>
     )
 }
 
 export default function Score() {
+    const { width } = useWindowDimensions()
+    const compactLayout = width < 820
     const [mode, setMode] = useState<ScoreMode>("menu")
     const [scoreList, setScoreList] = useState<ScoreListItem[]>([])
     const [loading, setLoading] = useState(false)
@@ -1382,13 +1410,13 @@ export default function Score() {
     )
 
     return (
-        <View style={styles.menuContainer}>
+        <SafeAreaView style={styles.menuContainer} edges={["top", "left", "right"]}>
             <Text style={styles.menuTitle}>乐谱编辑</Text>
             <Text style={styles.menuSubtitle}>新建乐谱或打开已保存的乐谱</Text>
 
-            <View style={styles.buttonGroup}>
+            <View style={[styles.buttonGroup, compactLayout && styles.buttonGroupCompact]}>
                 <TouchableOpacity
-                    style={styles.menuButton}
+                    style={[styles.menuButton, compactLayout && styles.menuButtonCompact]}
                     onPress={() => handleNewScore("staff")}
                     activeOpacity={0.7}
                 >
@@ -1398,7 +1426,7 @@ export default function Score() {
                 </TouchableOpacity>
 
                 <TouchableOpacity
-                    style={styles.menuButton}
+                    style={[styles.menuButton, compactLayout && styles.menuButtonCompact]}
                     onPress={() => handleNewScore("tab")}
                     activeOpacity={0.7}
                 >
@@ -1429,7 +1457,7 @@ export default function Score() {
                     />
                 )}
             </View>
-        </View>
+        </SafeAreaView>
     )
 }
 
@@ -1448,11 +1476,16 @@ const styles = StyleSheet.create({
         flexDirection: "row",
         alignItems: "center",
         justifyContent: "space-between",
+        flexWrap: "wrap",
         backgroundColor: "#f5f5f5",
         paddingHorizontal: 12,
         paddingVertical: 8,
         borderBottomWidth: 1,
         borderBottomColor: "#e5e7eb",
+    },
+    topBarCompact: {
+        alignItems: "flex-start",
+        gap: 8,
     },
     backButton: {
         paddingHorizontal: 8,
@@ -1465,6 +1498,7 @@ const styles = StyleSheet.create({
     },
     scoreTitle: {
         flex: 1,
+        minWidth: 160,
         fontSize: 15,
         fontWeight: "600",
         color: "#333",
@@ -1474,7 +1508,13 @@ const styles = StyleSheet.create({
     playbackControls: {
         flexDirection: "row",
         alignItems: "center",
+        flexWrap: "wrap",
+        justifyContent: "flex-end",
         gap: 8,
+    },
+    playbackControlsCompact: {
+        width: "100%",
+        justifyContent: "flex-start",
     },
     playBtn: {
         paddingHorizontal: 16,
@@ -1595,7 +1635,7 @@ const styles = StyleSheet.create({
     menuContainer: {
         flex: 1,
         backgroundColor: "#f8f9fa",
-        paddingTop: 60,
+        paddingTop: 24,
         alignItems: "center",
         paddingHorizontal: 24,
     },
@@ -1612,8 +1652,13 @@ const styles = StyleSheet.create({
     },
     buttonGroup: {
         flexDirection: "row",
+        flexWrap: "wrap",
+        justifyContent: "center",
         gap: 16,
         marginBottom: 32,
+    },
+    buttonGroupCompact: {
+        width: "100%",
     },
     menuButton: {
         backgroundColor: "#ffffff",
@@ -1627,6 +1672,10 @@ const styles = StyleSheet.create({
         shadowOpacity: 0.08,
         shadowRadius: 12,
         elevation: 3,
+    },
+    menuButtonCompact: {
+        width: "100%",
+        maxWidth: 360,
     },
     menuButtonIcon: {
         fontSize: 48,
@@ -1704,6 +1753,7 @@ const styles = StyleSheet.create({
     },
     scoreItemActions: {
         flexDirection: "row",
+        flexWrap: "wrap",
         gap: 8,
     },
     scoreItemBtn: {

@@ -1,6 +1,50 @@
+import Constants from "expo-constants"
+import { Platform } from "react-native"
 import { Score, Note, TabNote } from "../models/Score"
 
-const API_BASE = "http://localhost:3000"
+type ExpoConstantsLike = typeof Constants & {
+  expoConfig?: { hostUri?: string }
+  expoGoConfig?: { debuggerHost?: string }
+  manifest2?: {
+    extra?: {
+      expoClient?: {
+        hostUri?: string
+      }
+    }
+  }
+}
+
+function getDevHost(): string | null {
+  const constants = Constants as ExpoConstantsLike
+  const candidates = [
+    constants.expoConfig?.hostUri,
+    constants.expoGoConfig?.debuggerHost,
+    constants.manifest2?.extra?.expoClient?.hostUri,
+  ]
+
+  for (const candidate of candidates) {
+    if (!candidate) continue
+    const host = candidate.split(":")[0]
+    if (host) return host
+  }
+
+  return null
+}
+
+function getApiBase(): string {
+  const devHost = getDevHost()
+  if (devHost) {
+    return `http://${devHost}:3000`
+  }
+
+  if (Platform.OS === "android") {
+    return "http://10.0.2.2:3000"
+  }
+
+  return "http://localhost:3000"
+}
+
+const API_BASE = getApiBase()
 
 export type ScoreListItem = {
   _id: string
