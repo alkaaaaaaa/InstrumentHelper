@@ -172,6 +172,10 @@ function isTypingElement(target: EventTarget | null): boolean {
     return target.isContentEditable
 }
 
+function isPlayPauseKey(key: string): boolean {
+    return key === " " || key === "Spacebar" || key === "Space"
+}
+
 // 计算六线谱小节中已占用的总时值（按拍计）
 // 规则：同一拍多根弦只按该拍最大时值计算一次
 function getTabMeasureDuration(tabNotes: TabNote[] | undefined): number {
@@ -484,8 +488,8 @@ function StaffNotationView({ onBack, initialScore, scoreId }: { onBack: () => vo
         const handleKeyDown = (e: KeyboardEvent) => {
             if (saveModalVisible || isTypingElement(e.target)) return
             // 仅处理我们关心的按键
-            const handled = ["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Enter", "Delete", "Backspace", " "]
-            if (!handled.includes(e.key)) return
+            const handled = ["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Enter", "Delete", "Backspace"]
+            if (!handled.includes(e.key) && !isPlayPauseKey(e.key)) return
 
             // capture 阶段 + stopPropagation：确保任何已获焦的按钮（如"分析"）
             // 无法通过自己的 keydown 处理器拦截这些按键
@@ -514,7 +518,7 @@ function StaffNotationView({ onBack, initialScore, scoreId }: { onBack: () => vo
                 handleNoteInputRef.current(pitch, currentDurationRef.current)
             } else if (e.key === "Delete" || e.key === "Backspace") {
                 handleDelete()
-            } else if (e.key === " ") {
+            } else if (isPlayPauseKey(e.key)) {
                 togglePlayPause()
             }
         }
@@ -1098,6 +1102,11 @@ function TabNotationEditor({ onBack, initialScore, scoreId }: { onBack: () => vo
                 e.stopPropagation()
                 flushBuffer()
                 handleDelete()
+            } else if (isPlayPauseKey(e.key)) {
+                e.preventDefault()
+                e.stopPropagation()
+                flushBuffer()
+                togglePlayPause()
             }
         }
         window.addEventListener("keydown", handleKeyDown, true)
@@ -1108,7 +1117,7 @@ function TabNotationEditor({ onBack, initialScore, scoreId }: { onBack: () => vo
                 window.clearTimeout(buf.timer)
             }
         }
-    }, [handleFretInput, handleMoveLeft, handleMoveRight, handleMoveUp, handleMoveDown, handleDelete])
+    }, [handleFretInput, handleMoveLeft, handleMoveRight, handleMoveUp, handleMoveDown, handleDelete, togglePlayPause])
 
     const selectedInfo = selectedCell
         ? (() => {
