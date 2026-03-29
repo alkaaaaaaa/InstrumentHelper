@@ -12,6 +12,31 @@ const NOTE_SEMITONES: Record<string, number> = {
     "B": 2,
 }
 
+// MIDI 音符名（0=C, 1=C#, ..., 11=B）
+const MIDI_NOTE_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
+
+/**
+ * 将 pitch 字符串转换为 MIDI 音符编号（A4 = 69）
+ */
+export function pitchToMidi(pitch: string): number {
+    const match = pitch.match(/^([A-G])(#|b)?(\d+)$/)
+    if (!match) return 69
+    const noteName = match[1] + (match[2] || "")
+    const octave = parseInt(match[3], 10)
+    const semitone = NOTE_SEMITONES[noteName]
+    if (semitone === undefined) return 69
+    return 69 + semitone + (octave - 4) * 12
+}
+
+/**
+ * 将 MIDI 音符编号转换为 pitch 字符串（如 69 → "A4"）
+ */
+export function midiToPitch(midi: number): string {
+    const noteIndex = ((midi % 12) + 12) % 12
+    const octave = Math.floor(midi / 12) - 1
+    return MIDI_NOTE_NAMES[noteIndex] + octave
+}
+
 /**
  * 将 pitch 字符串（如 "E4", "C#5"）转换为频率（Hz）
  */

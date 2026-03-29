@@ -756,8 +756,11 @@ function TabNotationEditor({ onBack, initialScore, scoreId }: { onBack: () => vo
     const [selectedCell, setSelectedCell] = useState<SelectedCell | null>(null)
     const [chordModalVisible, setChordModalVisible] = useState(false)
     const [currentDuration, setCurrentDuration] = useState(1)
+    const [currentBend, setCurrentBend] = useState(0)
     // 数字键多位输入缓存（例如按 1 再按 2 组成 12）
     const fretInputBufferRef = useRef<{ value: string; timer: number | null }>({ value: "", timer: null })
+
+    const { playbackState, currentPosition, togglePlayPause, stop } = useScorePlayer(score)
 
     const handleSave = useCallback(async (title: string) => {
         setSaving(true)
@@ -799,6 +802,13 @@ function TabNotationEditor({ onBack, initialScore, scoreId }: { onBack: () => vo
 
     const handleCellSelect = useCallback((cell: SelectedCell) => {
         setSelectedCell(cell)
+        // 同步当前推弦值到选中格子上已有音符的 bend
+        setScore(prev => {
+            const measure = prev.measures.find(m => m.index === cell.measureIndex)
+            const existing = measure?.tabNotes?.find(n => n.beat === cell.beat && n.string === cell.string)
+            setCurrentBend(existing?.bend ?? 0)
+            return prev
+        })
     }, [])
 
     const handleFretInput = useCallback((fret: number) => {
@@ -818,6 +828,7 @@ function TabNotationEditor({ onBack, initialScore, scoreId }: { onBack: () => vo
                     fret,
                     beat: selectedCell.beat,
                     duration: currentDuration,
+                    ...(currentBend > 0 ? { bend: currentBend } : {}),
                 }
 
                 if (existingIdx >= 0) {
@@ -831,7 +842,7 @@ function TabNotationEditor({ onBack, initialScore, scoreId }: { onBack: () => vo
             return { ...prev, measures: newMeasures }
         })
         // 不再自动移动光标，保持在当前格子
-    }, [selectedCell, currentDuration])
+    }, [selectedCell, currentDuration, currentBend])
 
     const handleDurationChange = useCallback((duration: number) => {
         setCurrentDuration(duration)
@@ -847,6 +858,32 @@ function TabNotationEditor({ onBack, initialScore, scoreId }: { onBack: () => vo
                 )
                 if (idx >= 0) {
                     tabNotes[idx] = { ...tabNotes[idx], duration }
+                }
+                return { ...m, tabNotes }
+            })
+            return { ...prev, measures: newMeasures }
+        })
+    }, [selectedCell])
+
+    const handleBendChange = useCallback((bend: number) => {
+        setCurrentBend(bend)
+        if (!selectedCell) return
+        // 同步更新选中格子上已有音符的推弦值
+        setScore(prev => {
+            const newMeasures = prev.measures.map(m => {
+                if (m.index !== selectedCell.measureIndex) return m
+                const tabNotes = [...(m.tabNotes || [])]
+                const idx = tabNotes.findIndex(
+                    n => n.beat === selectedCell.beat && n.string === selectedCell.string
+                )
+                if (idx >= 0) {
+                    const updated = { ...tabNotes[idx] }
+                    if (bend > 0) {
+                        updated.bend = bend
+                    } else {
+                        delete updated.bend
+                    }
+                    tabNotes[idx] = updated
                 }
                 return { ...m, tabNotes }
             })
@@ -1068,6 +1105,27 @@ function TabNotationEditor({ onBack, initialScore, scoreId }: { onBack: () => vo
                     {score.title || "未命名乐谱"}
                 </Text>
                 <View style={styles.playbackControls}>
+                    <TouchableOpacity
+                        style={[
+                            styles.playBtn,
+                            playbackState === "playing" && styles.playBtnActive,
+                        ]}
+                        onPress={togglePlayPause}
+                    >
+                        <Text style={[
+                            styles.playBtnText,
+                            playbackState === "playing" && styles.playBtnTextActive,
+                        ]}>
+                            {playbackState === "playing" ? "⏸ 暂停" : "▶ 播放"}
+                        </Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                        style={[styles.stopBtn, playbackState === "stopped" && { opacity: 0 }]}
+                        onPress={stop}
+                        disabled={playbackState === "stopped"}
+                    >
+                        <Text style={styles.stopBtnText}>⏹ 停止</Text>
+                    </TouchableOpacity>
                     <View style={styles.bpmControl}>
                         <TouchableOpacity
                             style={[styles.bpmBtn, score.bpm <= BPM_MIN && styles.bpmBtnDisabled]}
@@ -1131,6 +1189,8 @@ function TabNotationEditor({ onBack, initialScore, scoreId }: { onBack: () => vo
                 selectedInfo={selectedInfo}
                 currentDuration={currentDuration}
                 onDurationChange={handleDurationChange}
+                currentBend={currentBend}
+                onBendChange={handleBendChange}
             />
             <ChordScaleModal
                 visible={chordModalVisible}

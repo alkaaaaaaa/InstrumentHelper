@@ -12,7 +12,16 @@ type Props = {
     selectedInfo: string
     currentDuration: number
     onDurationChange: (duration: number) => void
+    currentBend: number
+    onBendChange: (bend: number) => void
 }
+
+const BEND_OPTIONS = [
+    { label: "无", value: 0 },
+    { label: "½音", value: 1 },
+    { label: "全音", value: 2 },
+    { label: "1½", value: 3 },
+]
 
 export function EditorToolbar({
     onFretInput,
@@ -25,6 +34,8 @@ export function EditorToolbar({
     selectedInfo,
     currentDuration,
     onDurationChange,
+    currentBend,
+    onBendChange,
 }: Props) {
     return (
         <View style={styles.container}>
@@ -58,6 +69,28 @@ export function EditorToolbar({
                             ]}
                         >
                             {d.label}
+                        </Text>
+                    </TouchableOpacity>
+                ))}
+            </View>
+
+            {/* 推弦 */}
+            <View style={styles.row}>
+                <Text style={styles.sectionLabel}>推弦</Text>
+                {BEND_OPTIONS.map(b => (
+                    <TouchableOpacity
+                        key={`bend-${b.value}`}
+                        style={[
+                            styles.bendBtn,
+                            currentBend === b.value && styles.bendBtnActive,
+                        ]}
+                        onPress={() => onBendChange(b.value)}
+                    >
+                        <Text style={[
+                            styles.bendBtnText,
+                            currentBend === b.value && styles.bendBtnTextActive,
+                        ]}>
+                            {b.label}
                         </Text>
                     </TouchableOpacity>
                 ))}
@@ -229,6 +262,30 @@ const styles = StyleSheet.create({
         color: "#1f2937",
     },
     durationBtnTextActive: {
+        color: "#ffffff",
+    },
+    bendBtn: {
+        paddingHorizontal: 12,
+        height: 32,
+        borderRadius: 6,
+        backgroundColor: "#ffffff",
+        borderWidth: 1,
+        borderColor: "#d1d5db",
+        justifyContent: "center",
+        alignItems: "center",
+        marginRight: 6,
+        marginBottom: 2,
+    },
+    bendBtnActive: {
+        backgroundColor: "#e05c00",
+        borderColor: "#e05c00",
+    },
+    bendBtnText: {
+        fontSize: 12,
+        fontWeight: "600",
+        color: "#1f2937",
+    },
+    bendBtnTextActive: {
         color: "#ffffff",
     },
 })

@@ -1,6 +1,16 @@
 import { useState, useCallback, useRef, useEffect } from "react"
-import { Score, Measure, Note } from "../models/Score"
-import { playNotes, releaseAllSounds, setupAudioMode } from "../utils/audioSynth"
+import { Score, TabNote } from "../models/Score"
+import { playNotes, releaseAllSounds, setupAudioMode, pitchToMidi, midiToPitch } from "../utils/audioSynth"
+
+const DEFAULT_TAB_TUNING = ["E2", "A2", "D3", "G3", "B3", "E4"]
+
+/** 将六线谱音符（弦+品位+推弦）转换为音高字符串，tuning[0]=string6(低E), tuning[5]=string1(高e) */
+function tabNoteToPitch(note: TabNote, tuning: string[]): string {
+    const openStringPitch = tuning[6 - note.string] ?? "E4"
+    const openMidi = pitchToMidi(openStringPitch)
+    const bendSemitones = note.bend ?? 0
+    return midiToPitch(openMidi + note.fret + bendSemitones)
+}
 
 export type PlaybackState = "stopped" | "playing" | "paused"
 
@@ -20,21 +30,36 @@ type BeatEvent = {
 
 /**
  * 将 Score 展开为按时间顺序排列的 beat 事件列表。
- * 支持分数拍位置（八分、十六分等），每个事件携带正确的间隔时长。
+ * 支持五线谱 notes 和六线谱 tabNotes（含推弦），每个事件携带正确的间隔时长。
  */
 function buildBeatEvents(score: Score): BeatEvent[] {
     const events: BeatEvent[] = []
     const beatDurationSec = 60 / score.bpm
+    const tuning = score.tuning ?? DEFAULT_TAB_TUNING
 
     for (const measure of score.measures) {
-        const beatMap = new Map<number, Note[]>()
+        // beat → 音高列表
+        const pitchMap = new Map<number, string[]>()
+        // beat → 时值列表（用于计算发声时长）
+        const durMap = new Map<number, number[]>()
 
-        for (const note of measure.notes) {
+        // 五线谱音符
+        for (const note of (measure.notes || [])) {
             const beat = note.start
-            if (!beatMap.has(beat)) {
-                beatMap.set(beat, [])
-            }
-            beatMap.get(beat)!.push(note)
+            if (!pitchMap.has(beat)) pitchMap.set(beat, [])
+            if (!durMap.has(beat)) durMap.set(beat, [])
+            pitchMap.get(beat)!.push(note.pitch)
+            durMap.get(beat)!.push(note.duration)
+        }
+
+        // 六线谱音符（含推弦：自动提升对应半音数）
+        for (const tabNote of (measure.tabNotes || [])) {
+            const beat = tabNote.beat
+            const pitch = tabNoteToPitch(tabNote, tuning)
+            if (!pitchMap.has(beat)) pitchMap.set(beat, [])
+            if (!durMap.has(beat)) durMap.set(beat, [])
+            pitchMap.get(beat)!.push(pitch)
+            durMap.get(beat)!.push(tabNote.duration ?? 1)
         }
 
         // 合并整数拍位置（空拍占位）和所有音符实际起始位置（含分数拍）
@@ -42,7 +67,7 @@ function buildBeatEvents(score: Score): BeatEvent[] {
         for (let b = 0; b < score.timeSignature.beats; b++) {
             positionSet.add(b)
         }
-        for (const beat of beatMap.keys()) {
+        for (const beat of pitchMap.keys()) {
             positionSet.add(beat)
         }
 
@@ -54,13 +79,13 @@ function buildBeatEvents(score: Score): BeatEvent[] {
                 ? sortedPositions[i + 1]
                 : score.timeSignature.beats
 
-            const notes = beatMap.get(beat) || []
-            const pitches = notes.map(n => n.pitch)
+            const pitches = pitchMap.get(beat) || []
+            const durations = durMap.get(beat) || []
 
             // 音符发声时长：取该位置最短音符时长
             let durationBeats = nextBeat - beat
-            if (notes.length > 0) {
-                durationBeats = Math.min(...notes.map(n => n.duration))
+            if (durations.length > 0) {
+                durationBeats = Math.min(...durations)
             }
 
             // 到下一事件的间隔：由位置差决定，与音符时值无关

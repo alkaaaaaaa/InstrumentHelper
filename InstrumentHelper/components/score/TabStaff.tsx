@@ -19,7 +19,7 @@ const LINE_SPACING = 20           // 弦间距
 const BEAT_WIDTH = 60             // 每拍宽度
 const LEFT_MARGIN = 40            // 左侧留白（放弦号标签）
 const RIGHT_MARGIN = 16
-const TOP_MARGIN = 30
+const TOP_MARGIN = 44             // 加高，为推弦标注留出空间
 const BOTTOM_MARGIN = 16
 const BARLINE_EXTEND = 0          // 小节线上下延伸
 const NOTE_FONT_SIZE = 16
@@ -35,6 +35,14 @@ const LABEL_COLOR = "#9ca3af"
 
 // 标准调弦标签（从第1弦到第6弦）
 const STRING_LABELS = ["e", "B", "G", "D", "A", "E"]
+
+// 推弦半音数 → 显示文字
+function bendLabel(bend: number): string {
+    if (bend === 1) return "½"
+    if (bend === 2) return "full"
+    if (bend === 3) return "1½"
+    return ""
+}
 
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const fontFile = require("../../assets/FiraCode-VariableFont_wght.ttf")
@@ -269,6 +277,21 @@ export function TabStaff({
                         const duration = note.duration ?? 1
                         const appearance = getTabNoteAppearance(duration)
 
+                        // 推弦可视化参数
+                        const hasBend = !!note.bend && note.bend > 0
+                        const bendStartY = cy - NOTE_FONT_SIZE / 2 - 2
+                        const bendEndX = cx + 10
+                        const bendEndY = bendStartY - 28
+                        const bendCtrlX = cx + 14
+                        const bendCtrlY = bendStartY - 10
+                        const bendArcPath = hasBend
+                            ? `M ${cx} ${bendStartY} Q ${bendCtrlX} ${bendCtrlY} ${bendEndX} ${bendEndY}`
+                            : ""
+                        const arrowSz = 4
+                        const bendArrowHead = hasBend
+                            ? `M ${bendEndX} ${bendEndY} L ${bendEndX - arrowSz} ${bendEndY + arrowSz * 1.5} L ${bendEndX + arrowSz} ${bendEndY + arrowSz * 1.5} Z`
+                            : ""
+
                         return (
                             <Group key={`note-${layout.measure.index}-${ni}`}>
                                 {/* 白色背景遮盖弦线 */}
@@ -287,7 +310,30 @@ export function TabStaff({
                                     font={font}
                                     color={NOTE_TEXT_COLOR}
                                 />
-                                {/* 下方“音符杆”和时值勾形 */}
+                                {/* 推弦弧线箭头 + 标注文字 */}
+                                {hasBend && (
+                                    <Group>
+                                        <Path
+                                            path={bendArcPath}
+                                            color="#e05c00"
+                                            style="stroke"
+                                            strokeWidth={1.8}
+                                        />
+                                        <Path
+                                            path={bendArrowHead}
+                                            color="#e05c00"
+                                            style="fill"
+                                        />
+                                        <SkiaText
+                                            x={bendEndX + 3}
+                                            y={bendEndY + 4}
+                                            text={bendLabel(note.bend!)}
+                                            font={labelFont}
+                                            color="#e05c00"
+                                        />
+                                    </Group>
+                                )}
+                                {/* 下方“音符杆”和时値勾形 */}
                                 {appearance.showStem && (() => {
                                     const stemTopY = cy + NOTE_FONT_SIZE / 2 + 2
                                     const stemX = cx - 1
