@@ -719,7 +719,7 @@ function StaffNotationView({ onBack, initialScore, scoreId }: { onBack: () => vo
                                 })}
                             >
                                 <Text style={{ color: "#6366f1", fontSize: 11, fontWeight: "600" }}>
-                                    {ann.clef === "bass" ? `低音: ${ann.label}` : `高音: ${ann.label}`}
+                                    {ann.label}
                                 </Text>
                             </Pressable>
                         )

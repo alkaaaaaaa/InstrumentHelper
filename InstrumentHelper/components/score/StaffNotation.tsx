@@ -150,7 +150,7 @@ type NoteAppearance = {
 
 function getNoteAppearance(duration: number): NoteAppearance {
     if (duration >= 4) return { filled: false, hasStem: false, flags: 0 }  // 全音符
-    if (duration >= 2) return { filled: true, hasStem: true, flags: 0 }   // 二分音符
+    if (duration >= 2) return { filled: false, hasStem: true, flags: 0 }  // 二分音符
     if (duration >= 1) return { filled: true, hasStem: true, flags: 0 }    // 四分音符
     if (duration >= 0.5) return { filled: true, hasStem: true, flags: 1 }  // 八分音符
     return { filled: true, hasStem: true, flags: 2 }                       // 十六分音符
