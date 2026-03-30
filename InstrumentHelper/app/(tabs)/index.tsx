@@ -6,7 +6,7 @@ export default function Home() {
     const router = useRouter()
     return (
         <View style={styles.container}>
-            <Button onPress={() => router.push('/score')}>谱子</Button>
+            <Button onPress={() => router.push('/score')}>乐谱查看&编写</Button>
             <Button onPress={() => router.push('/learn')}>学习</Button>
         </View>
     )
